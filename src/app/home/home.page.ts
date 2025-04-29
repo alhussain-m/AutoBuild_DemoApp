@@ -7,8 +7,8 @@ import { environment } from 'src/environments/environment.prod';
   styleUrls: ['home.page.scss'],
 })
 export class HomePage {
-  isProd: string;
+  envName: string;
   constructor() {
-    this.isProd = environment.production.toString();
+    this.envName = environment.envName;
   }
 }
