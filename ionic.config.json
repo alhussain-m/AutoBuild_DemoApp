@@ -1,0 +1,7 @@
+{
+  "name": "AutoBuild_DemoApp",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "angular"
+}
