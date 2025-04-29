@@ -1,8 +1,7 @@
 target/
 !.mvn/wrapper/maven-wrapper.jar
 
-### Gradle ###
-.gradle/**
+
 
 site/
 
