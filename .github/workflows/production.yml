@@ -1,0 +1,42 @@
+name: Android Production Build
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    env:
+      BUILD_ENV: "production"
+      VERSION_SUFFIX: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Production APK
+        run: |
+          npm run build -- --configuration=production
+          npx cap sync android
+          cd android
+          ./gradlew assembleRelease
+
+      - name: Upload Production APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-production-release
+          path: android/app/build/outputs/apk/release/*.apk
