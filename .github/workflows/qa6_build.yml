@@ -2,7 +2,7 @@ name: Android QA6 Build
 
 on:
   push:
-    branches: [newcicd]
+    branches: [qa6]
 
 jobs:
   build-android:
