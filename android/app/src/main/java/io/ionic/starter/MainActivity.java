@@ -1,4 +1,4 @@
-package io.ionic.starter;
+package com.citus.stage;
 
 import com.getcapacitor.BridgeActivity;
 

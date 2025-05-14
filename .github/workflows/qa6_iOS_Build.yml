@@ -1,0 +1,43 @@
+build-ios:
+    runs-on: macos-latest
+    env:
+      BUILD_ENV: "qa6"
+      VERSION_SUFFIX: "-beta.${{ github.run_number }}"
+    steps:
+      - uses: actions/checkout@v4
+ 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+ 
+      - name: Install dependencies
+        run: npm install
+ 
+      - name: Sync Capacitor for iOS
+        run: |
+          npm run build -- --configuration=qa6
+          npx cap sync ios
+ 
+      - name: Install CocoaPods
+        run: |
+          cd ios/App
+          pod install
+ 
+      - name: Build iOS App (Debug)
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace -scheme App -configuration Debug -sdk iphoneos -archivePath $PWD/build/App.xcarchive archive
+ 
+      - name: Export IPA
+        run: |
+          cd ios/App
+          xcodebuild -exportArchive -archivePath $PWD/build/App.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath $PWD/build
+ 
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-qa6-debug
+          path: ios/App/build/*.ipa
