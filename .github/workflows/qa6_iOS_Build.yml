@@ -1,58 +1,59 @@
-name: iOS Build
+name: Build iOS
 
-on: [push]
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-ios:
     runs-on: macos-latest
-    
+    env:
+      BUILD_ENV: "qa6"
+      VERSION_SUFFIX: "-beta.${{ github.run_number }}"
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Xcode
-      run: |
-        sudo xcode-select -s /Applications/Xcode_15.4.app
-        xcodebuild -version
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
 
-    - name: Install Certificates and Profiles
-      env:
-        BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE }}
-        P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-        BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE }}
-      run: |
-        # Create directories
-        mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-        mkdir -p ~/Library/Keychains
+      - name: Install dependencies
+        run: npm install
 
-        # Import certificate
-        echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode --output > certificate.p12
-        security create-keychain -p "" build.keychain
-        security default-keychain -s build.keychain
-        security unlock-keychain -p "" build.keychain
-        security import certificate.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
-        security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+      - name: Build web assets & sync Capacitor
+        run: |
+          npm run build -- --configuration=qa6
+          npx cap sync ios
 
-        # Import provisioning profile
-        echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode --output > profile.mobileprovision
-        PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< $(security cms -D -i profile.mobileprovision))
-        cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
+      - name: Install CocoaPods dependencies
+        run: |
+          cd ios/App
+          pod install
 
-    - name: Build and Archive
-      run: |
-        xcodebuild -workspace App.xcworkspace \
-                   -scheme App \
-                   -configuration Debug \
-                   -sdk iphoneos \
-                   -archivePath build/App.xcarchive \
-                   archive \
-                   -allowProvisioningUpdates \
-                   -allowProvisioningDeviceRegistration
+      - name: Build iOS App (Debug)
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphoneos \
+            -archivePath $PWD/build/App.xcarchive archive
 
-    - name: Export IPA
-      run: |
-        xcodebuild -exportArchive \
-                   -archivePath build/App.xcarchive \
-                   -exportPath build/ \
-                   -exportOptionsPlist ExportOptions.plist \
-                   -allowProvisioningUpdates
+      - name: Export IPA
+        run: |
+          cd ios/App
+          xcodebuild -exportArchive \
+            -archivePath $PWD/build/App.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath $PWD/build
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-qa6-debug
+          path: ios/App/build/*.ipa
