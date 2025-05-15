@@ -38,7 +38,7 @@ jobs:
       - name: Build iOS App (Debug)
         run: |
           cd ios/App
-         xcodebuild -workspace App.xcworkspace \
+     xcodebuild -workspace App.xcworkspace \
            -scheme App \
            -configuration Debug \
            -sdk iphoneos \
@@ -46,14 +46,15 @@ jobs:
            archive \
            -allowProvisioningUpdates \
            -allowProvisioningDeviceRegistration
-           
+
       - name: Export IPA
         run: |
           cd ios/App
-          xcodebuild -exportArchive \
-            -archivePath $PWD/build/App.xcarchive \
-            -exportOptionsPlist ExportOptions.plist \
-            -exportPath $PWD/build
+ xcodebuild -exportArchive \
+           -archivePath build/App.xcarchive \
+           -exportPath build/ \
+           -exportOptionsPlist ExportOptions.plist \
+           -allowProvisioningUpdates
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
