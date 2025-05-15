@@ -54,10 +54,10 @@
 	<key>provisioningProfiles</key>
 	<dict>
 		<key>com.citrus.stage</key>
-		<string>CitusHealth Stage Provisioning</string>
+		<string>CitusHealth_Stage_Provisioning.mobileprovision</string>
 	</dict>
 	<key>signingStyle</key>
-    <string>manual</string>
+    <string>automatic</string>
 	<key>teamID</key>
 	<string>8LE2DAQG25</string>
 	<key>uploadBitcode</key>
