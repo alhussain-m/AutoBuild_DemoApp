@@ -54,7 +54,7 @@
 	<key>provisioningProfiles</key>
 	<dict>
 		<key>com.citrus.stage</key>
-		<string>CitusHealth_Stage_Provisioning.mobileprovision</string>
+		<string>CitusHealth Stage Provisioning</string>
 	</dict>
 	<key>signingStyle</key>
     <string>manual</string>
