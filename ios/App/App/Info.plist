@@ -62,7 +62,7 @@
        <key>provisioningProfiles</key>
        <dict>
            <key>com.citus.stage</key>
-           <string>iOS Team Provisioning Profile: com.citus.stage</string>
+           <string>CitusHealth Stage Provisioning</string>
        </dict>
 </dict>
 </plist>
