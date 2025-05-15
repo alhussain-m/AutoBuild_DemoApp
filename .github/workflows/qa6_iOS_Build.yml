@@ -38,12 +38,15 @@ jobs:
       - name: Build iOS App (Debug)
         run: |
           cd ios/App
-          xcodebuild -workspace App.xcworkspace \
-            -scheme App \
-            -configuration Debug \
-            -sdk iphoneos \
-            -archivePath $PWD/build/App.xcarchive archive
-
+         xcodebuild -workspace App.xcworkspace \
+           -scheme App \
+           -configuration Debug \
+           -sdk iphoneos \
+           -archivePath build/App.xcarchive \
+           archive \
+           -allowProvisioningUpdates \
+           -allowProvisioningDeviceRegistration
+           
       - name: Export IPA
         run: |
           cd ios/App
