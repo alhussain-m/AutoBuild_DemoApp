@@ -10,5 +10,6 @@ export class HomePage {
   envName: string;
   constructor() {
     this.envName = environment.envName;
+    console.log("new logs");
   }
 }
