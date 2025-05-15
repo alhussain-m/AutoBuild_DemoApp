@@ -45,5 +45,19 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+    <key>compileBitcode</key>
+       <false/>
+         <key>method</key>
+         <string>app-store</string>
+         <key>uploadBitcode</key>
+         <true/>
+         <key>uploadSymbols</key>
+         <true/>
+         <key>compileBitcode</key>
+         <true/>
+         <key>destination</key>
+         <string>export</string>
+         <key>signingStyle</key>
+         <string>automatic</string>
 </dict>
 </plist>
