@@ -48,17 +48,15 @@
 	<key>compileBitcode</key>
 	<false/>
     <key>method</key>
-      <string>app-store</string>
-      <key>uploadBitcode</key>
-      <true/>
-      <key>uploadSymbols</key>
-      <true/>
-      <key>compileBitcode</key>
-      <true/>
-      <key>destination</key>
-      <string>export</string>
-      <key>signingStyle</key>
-      <string>automatic</string>
-	<true/>
+    <string>development</string> <!-- or "app-store", "ad-hoc" -->
+    <key>signingStyle</key>
+    <string>manual</string>
+    <key>provisioningProfiles</key>
+    <dict>
+        <key>com.citus.stage</key>
+        <string>CitusHealth_Stage_Provisioning.mobileprovision</string>
+    </dict>
+    <key>teamID</key>
+    <string>8LE2DAQG25</string>
 </dict>
 </plist>
