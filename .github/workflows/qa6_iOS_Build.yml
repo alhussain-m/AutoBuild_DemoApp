@@ -1,4 +1,4 @@
-name: Build iOS
+name: Build and Deploy iOS (QA)
 
 on:
   push:
@@ -6,13 +6,13 @@ on:
       - main
   workflow_dispatch:
 
+env:
+  BUILD_ENV: qa6
+  VERSION_SUFFIX: -beta.${{ github.run_number }}
+
 jobs:
   build-ios:
     runs-on: macos-latest
-    env:
-      BUILD_ENV: "qa6"
-      VERSION_SUFFIX: "-beta.${{ github.run_number }}"
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -21,19 +21,32 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "18"
+          cache: 'npm'
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Build web assets & sync Capacitor
         run: |
-          npm run build -- --configuration=qa6
+          npm run build -- --configuration=${{ env.BUILD_ENV }}
           npx cap sync ios
 
       - name: Install CocoaPods dependencies
         run: |
           cd ios/App
-          pod install
+          pod install --repo-update
+
+      - name: Set up code signing
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          keychain-password: ${{ secrets.KEYCHAIN_PASSWORD }}
+          p12-file-base64: ${{ secrets.P12_BASE64 }}
+          p12-password: ${{ secrets.P12_PASSWORD }}
+          create-keychain: true
+
+      - name: Show code signing identities
+        run: |
+          security find-identity -v -p codesigning
 
       - name: Build iOS App (Debug)
         run: |
@@ -42,7 +55,9 @@ jobs:
             -scheme App \
             -configuration Debug \
             -sdk iphoneos \
-            -archivePath $PWD/build/App.xcarchive archive
+            -archivePath $PWD/build/App.xcarchive \
+            -allowProvisioningUpdates \
+            archive
 
       - name: Export IPA
         run: |
@@ -50,10 +65,11 @@ jobs:
           xcodebuild -exportArchive \
             -archivePath $PWD/build/App.xcarchive \
             -exportOptionsPlist ExportOptions.plist \
-            -exportPath $PWD/build
+            -exportPath $PWD/build \
+            -allowProvisioningUpdates
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-qa6-debug
+          name: app-${{ env.BUILD_ENV }}-debug
           path: ios/App/build/*.ipa
