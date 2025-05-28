@@ -38,7 +38,7 @@ jobs:
       - name: Set up code signing
         uses: apple-actions/import-codesign-certs@v2
         with:
-          p12-file-base64: ${{ secrets.P12_BASE64 }}  
+          p12-file-base64: ${{ secrets.P12_BASE64 }}  # REQUIRED - Add this line
           p12-password: ${{ secrets.P12_PASSWORD }}
           keychain-password: ${{ secrets.KEYCHAIN_PASSWORD }}
           create-keychain: true
