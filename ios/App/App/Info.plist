@@ -46,12 +46,10 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
     <key>method</key>
-       <string>development</string>
-       <key>teamID</key>
-       <string>8LE2DAQG25</string>
-       <key>compileBitcode</key>
-       <false/>
-       <key>uploadBitcode</key>
-       <false/>
+    <string>development</string>
+    <key>teamID</key>
+    <string>8LE2DAQG25</string>
+    <key>compileBitcode</key>
+    <false/>
 </dict>
 </plist>
