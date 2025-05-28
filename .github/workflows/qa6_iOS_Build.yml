@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  BUILD_ENV: stage
+  BUILD_ENV:  "qa6"
   BUNDLE_ID: com.citus.stage
   TEAM_ID: 8LE2DAQG25  # Replace with your actual Team ID
 
