@@ -1,4 +1,4 @@
-name: iOS Auto Build (Automatic Signing)
+name: iOS Build with Automatic Signing
 
 on:
   push:
@@ -6,42 +6,49 @@ on:
   workflow_dispatch:
 
 env:
-  BUILD_ENV:  "qa6"
+  BUILD_ENV: stage
   BUNDLE_ID: com.citus.stage
-  TEAM_ID: 8LE2DAQG25  # Replace with your actual Team ID
+  TEAM_ID: 8LE2DAQG25  
 
 jobs:
   build-ios:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-          
+          cache: 'npm'
+
       - name: Install dependencies
         run: npm ci
-        
+
       - name: Build web assets
         run: |
           npm run build -- --configuration=${{ env.BUILD_ENV }}
           npx cap sync ios
-          
+
       - name: Install CocoaPods
         run: |
           cd ios/App
-          pod install
-          
+          pod install --repo-update
+
       - name: Set up code signing
         uses: apple-actions/import-codesign-certs@v2
         with:
           p12-file-base64: ${{ secrets.P12_BASE64 }}
           p12-password: ${{ secrets.P12_PASSWORD }}
           keychain-password: ${{ secrets.KEYCHAIN_PASSWORD }}
-          
-      - name: Build and archive (Automatic Signing)
+          create-keychain: true
+
+      - name: Show available identities
+        run: |
+          security find-identity -v -p codesigning
+
+      - name: Build and archive (Automatic signing)
         run: |
           cd ios/App
           xcodebuild -workspace App.xcworkspace \
@@ -53,8 +60,11 @@ jobs:
             DEVELOPMENT_TEAM=${{ env.TEAM_ID }} \
             PRODUCT_BUNDLE_IDENTIFIER=${{ env.BUNDLE_ID }} \
             CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGNING_ALLOWED=YES \
             archive
-            
+
       - name: Export IPA
         run: |
           cd ios/App
@@ -63,9 +73,9 @@ jobs:
             -exportOptionsPlist ExportOptions.plist \
             -exportPath $PWD/build \
             -allowProvisioningUpdates
-            
-      - name: Upload artifact
+
+      - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-stage
+          name: app-${{ env.BUILD_ENV }}
           path: ios/App/build/*.ipa
