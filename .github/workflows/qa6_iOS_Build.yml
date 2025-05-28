@@ -1,4 +1,4 @@
-name: iOS Build with Automatic Signing
+name: iOS Build with Code Signing
 
 on:
   push:
@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
 
 env:
-  BUILD_ENV: "qa6"
+  BUILD_ENV: qa6
   BUNDLE_ID: com.citus.stage
-  TEAM_ID: 8LE2DAQG25  
+  TEAM_ID: 8LE2DAQG25  # Replace with your actual Team ID
 
 jobs:
   build-ios:
@@ -39,16 +39,13 @@ jobs:
       - name: Set up code signing
         uses: apple-actions/import-codesign-certs@v2
         with:
-          p12-file-base64: ${{ secrets.P12_BASE64 }}
+          p12-file-base64: ${{ secrets.P12_BASE64 }}  # REQUIRED - Add this line
           p12-password: ${{ secrets.P12_PASSWORD }}
           keychain-password: ${{ secrets.KEYCHAIN_PASSWORD }}
           create-keychain: true
+          keychain: signing_temp
 
-      - name: Show available identities
-        run: |
-          security find-identity -v -p codesigning
-
-      - name: Build and archive (Automatic signing)
+      - name: Build and archive
         run: |
           cd ios/App
           xcodebuild -workspace App.xcworkspace \
@@ -60,9 +57,6 @@ jobs:
             DEVELOPMENT_TEAM=${{ env.TEAM_ID }} \
             PRODUCT_BUNDLE_IDENTIFIER=${{ env.BUNDLE_ID }} \
             CODE_SIGN_STYLE=Automatic \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=YES \
-            CODE_SIGNING_ALLOWED=YES \
             archive
 
       - name: Export IPA
