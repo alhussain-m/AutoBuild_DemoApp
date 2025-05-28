@@ -48,15 +48,10 @@
 	<key>compileBitcode</key>
 	<false/>
     <key>method</key>
-    <string>development</string> <!-- or "app-store", "ad-hoc" -->
-    <key>signingStyle</key>
-    <string>manual</string>
-    <key>provisioningProfiles</key>
-    <dict>
-        <key>com.citus.stage</key>
-        <string>CitusHealth_Stage_Provisioning.mobileprovision</string>
-    </dict>
+    <string>development</string>
     <key>teamID</key>
-    <string>8LE2DAQG25</string>
+    <string>8LE2DAQG25</string> <!-- Must match your TEAM_ID -->
+    <key>compileBitcode</key>
+    <false/>
 </dict>
 </plist>
