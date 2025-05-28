@@ -14,6 +14,7 @@ jobs:
   build-ios:
     runs-on: macos-latest
     steps:
+      # Initial setup
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -23,6 +24,7 @@ jobs:
           node-version: '18'
           cache: 'npm'
 
+      # Build process
       - name: Install dependencies
         run: npm ci
 
@@ -31,6 +33,7 @@ jobs:
           npm run build -- --configuration=${{ env.BUILD_ENV }}
           npx cap sync ios
 
+      # CocoaPods setup
       - name: Cache CocoaPods
         uses: actions/cache@v4
         with:
@@ -41,6 +44,22 @@ jobs:
         run: |
           cd ios/App
           pod install --repo-update
+
+      # Code signing setup
+      - name: Verify P12 Certificate (Debug)
+        env:
+          P12_BASE64: ${{ secrets.P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        run: |
+          echo "Verifying P12 certificate..."
+          echo "$P12_BASE64" | base64 --decode > temp.p12
+          if openssl pkcs12 -in temp.p12 -nodes -passin pass:"$P12_PASSWORD" 2>&1 | grep -q "MAC verified OK"; then
+            echo "✅ P12 certificate and password are valid"
+          else
+            echo "❌ Invalid P12 certificate or password"
+            exit 1
+          fi
+          rm temp.p12
 
       - name: Set up code signing
         uses: apple-actions/import-codesign-certs@v2
@@ -53,9 +72,11 @@ jobs:
 
       - name: Debug Keychain Contents
         run: |
+          echo "Listing available identities..."
           security list-keychains
           security find-identity -v ~/Library/Keychains/signing_temp-db
 
+      # Build and archive
       - name: Build and archive
         run: |
           cd ios/App
@@ -71,6 +92,7 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             archive
 
+      # IPA export
       - name: Export IPA
         run: |
           cd ios/App
@@ -80,8 +102,15 @@ jobs:
             -exportPath $PWD/build \
             -allowProvisioningUpdates
 
+      # Artifacts
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-${{ env.BUILD_ENV }}
           path: ios/App/build/*.ipa
+
+      # Cleanup (optional)
+      - name: Clean up keychain
+        if: always()
+        run: |
+          security delete-keychain signing_temp
