@@ -1,4 +1,4 @@
-name: iOS Build with Code Signing
+name: Ionic iOS Build with Code Signing
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 env:
   BUILD_ENV: qa6
   BUNDLE_ID: com.citus.stage
-  TEAM_ID: 8LE2DAQG25
+  TEAM_ID: 8LE2DAQG25  # Replace with your actual Team ID
 
 jobs:
   build-ios:
@@ -24,82 +24,79 @@ jobs:
           node-version: '18'
           cache: 'npm'
 
-      # Build process
+      # Ionic/Capacitor setup
+      - name: Install Ionic CLI
+        run: npm install -g @ionic/cli
+
       - name: Install dependencies
         run: npm ci
 
       - name: Build web assets
         run: |
-          npm run build -- --configuration=${{ env.BUILD_ENV }}
+          ionic build --configuration=${{ env.BUILD_ENV }}
           npx cap sync ios
 
       # CocoaPods setup
       - name: Cache CocoaPods
         uses: actions/cache@v4
         with:
-          path: ios/App/Pods
-          key: pods-${{ hashFiles('ios/App/Podfile.lock') }}
+          path: ios/Pods
+          key: pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            pods-
 
       - name: Install CocoaPods
         run: |
-          cd ios/App
+          sudo gem install cocoapods
+          cd ios
           pod install --repo-update
 
-      # Code signing setup
-      - name: Verify P12 Certificate (Debug)
-        env:
-          P12_BASE64: ${{ secrets.P12_BASE64 }}
-          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-        run: |
-          echo "Verifying P12 certificate..."
-          echo "$P12_BASE64" | base64 --decode > temp.p12
-          if openssl pkcs12 -in temp.p12 -nodes -passin pass:"$P12_PASSWORD" 2>&1 | grep -q "MAC verified OK"; then
-            echo "✅ P12 certificate and password are valid"
-          else
-            echo "❌ Invalid P12 certificate or password"
-            exit 1
-          fi
-          rm temp.p12
-
+      # Code signing setup (using Distribution profiles)
       - name: Set up code signing
-        uses: apple-actions/import-codesign-certs@v2
-        with:
-          p12-file-base64: ${{ secrets.P12_BASE64 }}
-          p12-password: ${{ secrets.P12_PASSWORD }}
-          keychain-password: ${{ secrets.KEYCHAIN_PASSWORD }}
-          create-keychain: true
-          keychain: signing_temp
-
-      - name: Debug Keychain Contents
+        env:
+          P12_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERT }}
+          P12_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          PROVISIONING_PROFILE: ${{ secrets.IOS_DISTRIBUTION_PROFILE }}
         run: |
-          echo "Listing available identities..."
-          security list-keychains
-          security find-identity -v ~/Library/Keychains/signing_temp-db
+          # Create keychain
+          security create-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "${{ secrets.KEYCHAIN_PASSWORD }}" build.keychain
 
-      # Build and archive
-      - name: Build and archive
+          # Import certificate
+          echo "$P12_BASE64" | base64 --decode > cert.p12
+          security import cert.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
+          rm cert.p12
+
+          # Install provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$PROVISIONING_PROFILE" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+
+      # Xcode build
+      - name: Build iOS app
         run: |
           cd ios/App
           xcodebuild -workspace App.xcworkspace \
             -scheme App \
-            -configuration Debug \
+            -configuration Release \
             -sdk iphoneos \
-            -archivePath $PWD/build/App.xcarchive \
+            -archivePath build/App.xcarchive \
             -allowProvisioningUpdates \
-            DEVELOPMENT_TEAM=${{ env.TEAM_ID }} \
-            PRODUCT_BUNDLE_IDENTIFIER=${{ env.BUNDLE_ID }} \
-            CODE_SIGN_IDENTITY="iPhone Developer" \
-            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="${{ env.TEAM_ID }}" \
+            PRODUCT_BUNDLE_IDENTIFIER="${{ env.BUNDLE_ID }}" \
+            CODE_SIGN_IDENTITY="iPhone Distribution" \
+            CODE_SIGN_STYLE="Manual" \
+            PROVISIONING_PROFILE_SPECIFIER="CitusHealth Stage Provisioning" \
             archive
 
-      # IPA export
+      # Export IPA
       - name: Export IPA
         run: |
           cd ios/App
           xcodebuild -exportArchive \
-            -archivePath $PWD/build/App.xcarchive \
+            -archivePath build/App.xcarchive \
             -exportOptionsPlist ExportOptions.plist \
-            -exportPath $PWD/build \
+            -exportPath build \
             -allowProvisioningUpdates
 
       # Artifacts
@@ -108,9 +105,10 @@ jobs:
         with:
           name: app-${{ env.BUILD_ENV }}
           path: ios/App/build/*.ipa
+          retention-days: 7
 
-      # Cleanup (optional)
+      # Cleanup
       - name: Clean up keychain
         if: always()
         run: |
-          security delete-keychain signing_temp
+          security delete-keychain build.keychain
