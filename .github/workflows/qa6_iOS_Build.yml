@@ -24,7 +24,6 @@ jobs:
           node-version: '18'
           cache: 'npm'
 
-      # Ionic/Capacitor setup
       - name: Install Ionic CLI
         run: npm install -g @ionic/cli
 
