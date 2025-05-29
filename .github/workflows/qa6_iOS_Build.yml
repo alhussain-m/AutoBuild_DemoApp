@@ -1,4 +1,4 @@
-name: Ionic iOS Build with Code Signing
+name: Ionic iOS Build and Deploy
 
 on:
   push:
@@ -8,12 +8,13 @@ on:
 env:
   BUILD_ENV: qa6
   BUNDLE_ID: com.citus.stage
-  TEAM_ID: 8LE2DAQG25  
+  TEAM_ID: 8LE2DAQG25
 
 jobs:
   build-ios:
     runs-on: macos-latest
     steps:
+      # Initial setup
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -23,6 +24,7 @@ jobs:
           node-version: '18'
           cache: 'npm'
 
+      # Ionic/Capacitor setup
       - name: Install Ionic CLI
         run: npm install -g @ionic/cli
 
@@ -34,22 +36,27 @@ jobs:
           ionic build --configuration=${{ env.BUILD_ENV }}
           npx cap sync ios
 
-      # CocoaPods setup
+      # CocoaPods setup (fixed)
       - name: Cache CocoaPods
         uses: actions/cache@v4
         with:
-          path: ios/Pods
-          key: pods-${{ hashFiles('ios/Podfile.lock') }}
+          path: |
+            ios/App/Pods
+            ~/.cocoapods/repos
+          key: pods-${{ hashFiles('ios/App/Podfile.lock') }}
           restore-keys: |
             pods-
 
-      - name: Install CocoaPods
+      - name: Set up CocoaPods environment
         run: |
-          sudo gem install cocoapods
-          cd ios
-          pod install --repo-update
+          sudo gem install cocoapods -v 1.16.2
+          pod repo update
 
-      # Code signing setup (using Distribution profiles)
+      - name: Install Pods
+        working-directory: ./ios/App
+        run: pod install --repo-update
+
+      # Code signing setup
       - name: Set up code signing
         env:
           P12_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERT }}
