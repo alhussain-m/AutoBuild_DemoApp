@@ -1,4 +1,4 @@
-name: Build and Sign
+name: Build and Sign iOS
 
 on: [push]
 
@@ -17,6 +17,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v2
     
+    # Keychain Setup
     - name: Setup Keychain
       run: |
         security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
@@ -24,12 +25,12 @@ jobs:
         security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
         security set-keychain-settings -t 3600 -l "$KEYCHAIN_NAME"
     
+    # Certificate Import
     - name: Import Certificate
       env:
         P12_BASE64: ${{ secrets.P12_BASE64 }}
         P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
       run: |
-        echo "Importing certificate..."
         echo "$P12_BASE64" | base64 --decode > ios_25-5.p12
         security import ios_25-5.p12 \
           -k "$KEYCHAIN_NAME" \
@@ -40,12 +41,57 @@ jobs:
         rm -f ios_25-5.p12
         security find-identity -v -p codesigning "$KEYCHAIN_NAME"
     
+    # Provisioning Profile
     - name: Install Provisioning Profile
       env:
         PROVISIONING_PROFILE: ${{ secrets.PROVISIONING_PROFILE }}
       run: |
-        echo "Installing provisioning profile..."
         mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
         echo "$PROVISIONING_PROFILE" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
         ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
     
+    # Build Environment Setup
+    - name: Set up Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '18'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    # iOS Build Steps
+    - name: Build iOS App
+      run: |
+        cd ios
+        pod install --repo-update
+        xcodebuild -workspace App.xcworkspace \
+          -scheme App \
+          -configuration Release \
+          -sdk iphoneos \
+          -archivePath $PWD/build/App.xcarchive \
+          CODE_SIGN_STYLE=Manual \
+          CODE_SIGN_IDENTITY="iPhone Distribution" \
+          PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_SPECIFIER" \
+          DEVELOPMENT_TEAM="$TEAM_ID" \
+          PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+          archive
+      env:
+        PROVISIONING_PROFILE_SPECIFIER: "CitusHealth Stage Provisioning"  # Update to your profile name
+    
+    # IPA Export
+    - name: Export IPA
+      run: |
+        cd ios
+        xcodebuild -exportArchive \
+          -archivePath $PWD/build/App.xcarchive \
+          -exportOptionsPlist ExportOptions.plist \
+          -exportPath $PWD/build
+      env:
+        EXPORT_METHOD: app-store  # Or 'development', 'ad-hoc', 'enterprise'
+    
+    # Upload Artifact
+    - name: Upload IPA
+      uses: actions/upload-artifact@v2
+      with:
+        name: App-${{ env.BUILD_ENV }}.ipa
+        path: ios/build/*.ipa
