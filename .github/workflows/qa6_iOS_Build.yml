@@ -15,7 +15,7 @@ jobs:
     
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
     
     # Keychain Setup
     - name: Setup Keychain
@@ -52,7 +52,7 @@ jobs:
     
     # Build Environment Setup
     - name: Set up Node.js
-      uses: actions/setup-node@v2
+      uses: actions/setup-node@v3
       with:
         node-version: '18'
     
@@ -78,6 +78,30 @@ jobs:
       env:
         PROVISIONING_PROFILE_SPECIFIER: "CitusHealth Stage Provisioning"  # Update to your profile name
     
+    # Create Export Options Plist
+    - name: Generate Export Options
+      run: |
+        cd ios
+        cat <<EOF > ExportOptions.plist
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>method</key>
+            <string>$EXPORT_METHOD</string>
+            <key>teamID</key>
+            <string>$TEAM_ID</string>
+            <key>provisioningProfiles</key>
+            <dict>
+                <key>$BUNDLE_ID</key>
+                <string>$PROVISIONING_PROFILE_SPECIFIER</string>
+            </dict>
+        </dict>
+        </plist>
+        EOF
+      env:
+        EXPORT_METHOD: app-store  # Or 'development', 'ad-hoc', 'enterprise'
+    
     # IPA Export
     - name: Export IPA
       run: |
@@ -85,13 +109,18 @@ jobs:
         xcodebuild -exportArchive \
           -archivePath $PWD/build/App.xcarchive \
           -exportOptionsPlist ExportOptions.plist \
-          -exportPath $PWD/build
-      env:
-        EXPORT_METHOD: app-store  # Or 'development', 'ad-hoc', 'enterprise'
+          -exportPath $PWD/build \
+          -allowProvisioningUpdates
     
     # Upload Artifact
     - name: Upload IPA
-      uses: actions/upload-artifact@latest
+      uses: actions/upload-artifact@v4
       with:
         name: App-${{ env.BUILD_ENV }}.ipa
         path: ios/build/*.ipa
+    
+    # Cleanup
+    - name: Cleanup Keychain
+      if: always()
+      run: |
+        security delete-keychain "$KEYCHAIN_NAME"
