@@ -9,7 +9,7 @@ jobs:
     env:
       BUILD_ENV: qa6
       BUNDLE_ID: com.citus.stage
-      TEAM_ID: 8LE2DAQG25  # Verify this matches Citus Health's team ID
+      TEAM_ID: 8LE2DAQG25 
       KEYCHAIN_NAME: build.keychain
       KEYCHAIN_PASSWORD: "123"
     
