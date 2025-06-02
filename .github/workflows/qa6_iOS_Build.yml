@@ -91,7 +91,7 @@ jobs:
     
     # Upload Artifact
     - name: Upload IPA
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@latest
       with:
         name: App-${{ env.BUILD_ENV }}.ipa
         path: ios/build/*.ipa
