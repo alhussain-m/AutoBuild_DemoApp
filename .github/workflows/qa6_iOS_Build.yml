@@ -1,38 +1,68 @@
-build-ios:
+name: Build iOS IPA
+
+on: [push]
+
+jobs:
+  build-ios:
     name: Build iOS IPA
     runs-on: macos-latest
     env:
       BUILD_ENV: "qa6"
       VERSION_SUFFIX: "-beta.${{ github.run_number }}"
- 
+      TEAM_ID: "8LE2DAQG25"  # Added team ID from your previous config
+      BUNDLE_ID: "com.citus.stage"  # Added bundle ID from your previous config
+
     steps:
       - uses: actions/checkout@v4
- 
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "18"
- 
+
       - name: Install dependencies
         run: npm install
- 
+
       - name: Build iOS project
         run: |
           npm run build -- --configuration=qa6
           npx cap sync ios
- 
+
       - name: Install CocoaPods dependencies
         run: |
           cd ios/App
           pod install
- 
+
       - name: Set up code signing credentials
         uses: apple-actions/import-codesign-certs@v2
         with:
-          p12-file-base64: ${{ secrets.IOS_CERT_P12 }}
-          p12-password: ${{ secrets.IOS_CERT_PASSWORD }}
+          p12-file-base64: ${{ secrets.P12_PASSWORD }}
+          p12-password: ${{ secrets.P12_PASSWORD }}
           provisioning-profile-base64: ${{ secrets.IOS_PROVISIONING_PROFILE }}
- 
+
+      - name: Generate Export Options Plist
+        run: |
+          cd ios/App
+          cat <<EOF > ExportOptions.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>teamID</key>
+              <string>$TEAM_ID</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>$BUNDLE_ID</key>
+                  <string>$PROVISIONING_PROFILE_SPECIFIER</string>
+              </dict>
+          </dict>
+          </plist>
+          EOF
+        env:
+          PROVISIONING_PROFILE_SPECIFIER: "CitusHealth Stage Provisioning"  # Update to your profile name
+
       - name: Build IPA using Xcode
         run: |
           cd ios/App
@@ -40,15 +70,21 @@ build-ios:
                      -scheme App \
                      -configuration Release \
                      -archivePath $PWD/build/App.xcarchive \
+                     CODE_SIGN_STYLE=Manual \
+                     CODE_SIGN_IDENTITY="iPhone Distribution" \
+                     PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_SPECIFIER" \
+                     DEVELOPMENT_TEAM="$TEAM_ID" \
+                     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
                      clean archive
- 
+
           xcodebuild -exportArchive \
                      -archivePath $PWD/build/App.xcarchive \
                      -exportOptionsPlist ExportOptions.plist \
-                     -exportPath $PWD/build
- 
+                     -exportPath $PWD/build \
+                     -allowProvisioningUpdates
+
       - name: Upload iOS IPA
         uses: actions/upload-artifact@v4
         with:
-          name: app-qa6-release
+          name: app-qa6-release${{ env.VERSION_SUFFIX }}.ipa
           path: ios/App/build/*.ipa
