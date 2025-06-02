@@ -88,12 +88,10 @@ jobs:
           -exportPath $PWD/build
       env:
         EXPORT_METHOD: app-store  # Or 'development', 'ad-hoc', 'enterprise'
-
-# Upload step updated
-- name: Upload IPA
-  uses: actions/upload-artifact@latest
-  with:
-    name: App-${{ env.BUILD_ENV }}.ipa
-    path: ios/build/*.ipa
-
     
+    # Upload Artifact
+    - name: Upload IPA
+      uses: actions/upload-artifact@v4
+      with:
+        name: App-${{ env.BUILD_ENV }}.ipa
+        path: ios/build/*.ipa
