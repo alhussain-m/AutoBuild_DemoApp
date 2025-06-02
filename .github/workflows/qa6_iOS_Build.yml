@@ -9,7 +9,7 @@ jobs:
     env:
       BUILD_ENV: qa6
       BUNDLE_ID: com.citus.stage
-      TEAM_ID: 8LE2DAQG25
+      TEAM_ID: 8LE2DAQG25  # Verify this matches Citus Health's team ID
       KEYCHAIN_NAME: build.keychain
       KEYCHAIN_PASSWORD: "123"
     
@@ -38,6 +38,7 @@ jobs:
           -T /usr/bin/security \
           -A
         rm -f cert.p12
+        echo "Installed Certificates:"
         security find-identity -v -p codesigning "$KEYCHAIN_NAME"
     
     - name: Install Provisioning Profile
@@ -47,6 +48,12 @@ jobs:
         echo "Installing provisioning profile..."
         mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
         echo "$PROVISIONING_PROFILE" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+        echo "Installed Profiles:"
         ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
     
-    # Add your build steps here
+    - name: Build App
+      run: |
+        # Add your xcodebuild command here
+        echo "Building app..."
+        # Example:
+        # xcodebuild -workspace YourApp.xcworkspace -scheme YourScheme -destination 'generic/platform=iOS' clean archive
