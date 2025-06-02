@@ -1,41 +1,54 @@
-name: iOS QA6 Build
-
-on:
-  workflow_dispatch:
-
-jobs:
-  build-ios:
+build-ios:
+    name: Build iOS IPA
     runs-on: macos-latest
     env:
       BUILD_ENV: "qa6"
       VERSION_SUFFIX: "-beta.${{ github.run_number }}"
-
+ 
     steps:
       - uses: actions/checkout@v4
-
+ 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "18"
-
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-
+ 
       - name: Install dependencies
         run: npm install
-
-      - name: Build iOS app
+ 
+      - name: Build iOS project
         run: |
           npm run build -- --configuration=qa6
           npx cap sync ios
+ 
+      - name: Install CocoaPods dependencies
+        run: |
           cd ios/App
-          xcodebuild -workspace App.xcworkspace -scheme App -configuration Debug -sdk iphonesimulator -derivedDataPath build
-
-      - name: Upload iOS app bundle
+          pod install
+ 
+      - name: Set up code signing credentials
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.IOS_CERT_P12 }}
+          p12-password: ${{ secrets.IOS_CERT_PASSWORD }}
+          provisioning-profile-base64: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+ 
+      - name: Build IPA using Xcode
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace \
+                     -scheme App \
+                     -configuration Release \
+                     -archivePath $PWD/build/App.xcarchive \
+                     clean archive
+ 
+          xcodebuild -exportArchive \
+                     -archivePath $PWD/build/App.xcarchive \
+                     -exportOptionsPlist ExportOptions.plist \
+                     -exportPath $PWD/build
+ 
+      - name: Upload iOS IPA
         uses: actions/upload-artifact@v4
         with:
-          name: app-qa6-debug
-          path: ios/App/build/Build/Products/Debug-iphonesimulator/App.app
+          name: app-qa6-release
+          path: ios/App/build/*.ipa
