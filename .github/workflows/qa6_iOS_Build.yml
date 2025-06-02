@@ -12,6 +12,7 @@ jobs:
       TEAM_ID: 8LE2DAQG25
       KEYCHAIN_NAME: build.keychain
       KEYCHAIN_PASSWORD: "123"
+
     
     steps:
     - name: Checkout
@@ -49,21 +50,16 @@ jobs:
         echo "$PROVISIONING_PROFILE" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
         ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
     
- - name: Set Xcode Version
+    - name: Select Xcode Version
       run: |
-        sudo xcode-select -s /Applications/Xcode_14.3.app  # Specify your required Xcode version
-    
-    - name: Show Xcode Version
-      run: |
-        xcodebuild -version
-        xcode-select -p
+        sudo xcode-select -s /Applications/Xcode.app  # Use specific version if needed
     
     - name: Build and Archive
       run: |
         xcodebuild \
-          -workspace YourApp.xcworkspace \  # Replace with your .xcworkspace or use -project for .xcodeproj
+          -workspace "$WORKSPACE" \
           -scheme "$SCHEME" \
-          -configuration Release \
+          -configuration "$CONFIGURATION" \
           -destination 'generic/platform=iOS' \
           -archivePath build/YourApp.xcarchive \
           clean archive \
