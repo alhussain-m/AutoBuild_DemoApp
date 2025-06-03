@@ -35,10 +35,10 @@ jobs:
           security set-keychain-settings -t 3600 -u "$KEYCHAIN_NAME"
 
       # 3. Import certificate (using your BUILD_CERTIFICATE_BASE64 secret)
-      - name: Import distribution certificate
+      - name: Import certificate (Fixed)
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}  # MUST match export password
         run: |
           echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > ios_cert.p12
           security import ios_cert.p12 \
