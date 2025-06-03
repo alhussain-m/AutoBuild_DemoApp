@@ -14,9 +14,6 @@ env:
   CONFIGURATION: "Release"
   EXPORT_METHOD: "app-store"  # Change to "development" for dev builds
   
-  # Keychain settings
-  KEYCHAIN_NAME: "temp-build.keychain"
-  KEYCHAIN_PASSWORD: "P12_PASSWORD"  # Can be any random string
 
 jobs:
   build-ios:
