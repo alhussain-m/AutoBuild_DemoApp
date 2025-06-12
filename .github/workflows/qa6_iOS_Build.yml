@@ -15,7 +15,7 @@ env:
   EXPORT_METHOD: "app-store"  # Change to "development" for dev builds
   
   # Keychain settings
-  KEYCHAIN_NAME: "Apple Distribution: Citus Health, Inc."
+  KEYCHAIN_NAME: "build.keychain-db"
   KEYCHAIN_PASSWORD: "P12_PASSWORD"  # Can be any random string
 
 jobs:
@@ -71,7 +71,7 @@ jobs:
             -archivePath build/$SCHEME_NAME.xcarchive \
             -destination generic/platform=iOS \
             CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="iPhone Distribution" \
+            CODE_SIGN_IDENTITY="Apple Distribution: Citus Health, Inc. (8LE2DAQG25)" \
             PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_SPECIFIER" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
@@ -81,21 +81,6 @@ jobs:
       - name: Export IPA
         run: |
           cat <<EOF > ExportOptions.plist
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>method</key>
-              <string>$EXPORT_METHOD</string>
-              <key>teamID</key>
-              <string>$TEAM_ID</string>
-              <key>provisioningProfiles</key>
-              <dict>
-                  <key>$BUNDLE_ID</key>
-                  <string>$PROVISIONING_PROFILE_SPECIFIER</string>
-              </dict>
-          </dict>
-          </plist>
           EOF
 
           xcodebuild -exportArchive \
