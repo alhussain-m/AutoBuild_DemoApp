@@ -1,12 +1,4 @@
-- name: Install dependencies
-        run: npm install --force
- 
-      - name: Set up Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
- 
-      - name: Configure iOS signing
+     name: Configure iOS signing
         env:
           IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
@@ -28,7 +20,7 @@
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
  
-      - name: Build Staging IPA
+      name: Build Staging IPA
         run: |
           npm run build -- --configuration=qa6
           npx cap sync ios
@@ -65,13 +57,13 @@
                      -exportPath ./build \
                      -exportOptionsPlist ExportOptions.plist
  
-      - name: Upload Staging IPA
+     name: Upload Staging IPA
         uses: actions/upload-artifact@v4
         with:
           name: app-qa6-debug
           path: ios/App/build/*.ipa
  
-      - name: Clean up keychain
+     name: Clean up keychain
         if: always()
         run: |
           security delete-keychain build.keychain || true
