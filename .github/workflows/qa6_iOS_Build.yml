@@ -12,7 +12,7 @@ env:
   PROVISIONING_PROFILE_SPECIFIER: "CitusHealth Stage Provisioning"
   SCHEME_NAME: "App"  # Change if your scheme is different
   CONFIGURATION: "Release"
-  EXPORT_METHOD: "app-store"  # Change to "development" for dev builds
+  EXPORT_METHOD: "development"  # Change to "development" for dev builds
   
   # Keychain settings
   KEYCHAIN_NAME: "build.keychain-db"
