@@ -2,7 +2,7 @@ name: Build iOS IPA (Manual Signing)
 
 on:
   push:
-    branches: [auto-build-qa6]
+    branches: [main]
 
 env:
   # Your project details
