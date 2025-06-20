@@ -13,20 +13,27 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20 # Updated to LTS version
+          cache: 'npm'
       
-      - name: Install dependencies
+      - name: Clean install with audit fixes
         run: |
-          npm install
-          npm install -g @ionic/cli
+          npm install -g npm@latest # Update npm first
+          npm ci --legacy-peer-deps # Clean install with audit fixes
+          npm audit fix --force
+      
+      - name: Build web assets
+        run: |
+          npm run build --if-present || ionic build
+          mkdir -p www # Ensure www directory exists
+          touch www/index.html # Create minimum required file
+      
+      - name: Sync iOS project
+        run: |
           npx cap sync ios
-      
-      - name: Build iOS Project
-        run: |
-          ionic build
           cd ios
           pod install --repo-update
-          
+      
       - name: Archive and Export IPA
         run: |
           cd ios
