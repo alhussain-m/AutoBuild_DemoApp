@@ -1,4 +1,4 @@
-name: Build and Deploy iOS
+name: Build iOS IPA
 
 on:
   push:
@@ -9,23 +9,44 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Node.js
+      
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
+      
       - name: Install dependencies
-        run: npm install
-      - name: Build iOS
         run: |
-          npm run build
+          npm install
+          npm install -g @ionic/cli
           npx cap sync ios
+      
+      - name: Build iOS Project
+        run: |
+          ionic build
+          cd ios
+          pod install --repo-update
+          
       - name: Archive and Export IPA
         run: |
           cd ios
-          xcodebuild -workspace App.xcworkspace -scheme App -configuration Release -archivePath build/App.xcarchive archive
-          xcodebuild -exportArchive -archivePath build/App.xcarchive -exportPath build -exportOptionsPlist ExportOptions.plist
-      - name: Upload Artifact
+          xcodebuild archive \
+            -scheme App \
+            -configuration Release \
+            -archivePath build/App.xcarchive \
+            -allowProvisioningUpdates \
+            -workspace App.xcworkspace \
+            CODE_SIGN_STYLE="Automatic" \
+            DEVELOPMENT_TEAM="8LE2DAQG25"
+          
+          xcodebuild -exportArchive \
+            -archivePath build/App.xcarchive \
+            -exportPath build \
+            -exportOptionsPlist ExportOptions.plist \
+            -allowProvisioningUpdates
+      
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ios-app
-          path: ios/build/App.ipa  # Adjust if your path is different
+          name: app-ipa
+          path: ios/build/App.ipa
