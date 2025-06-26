@@ -39,7 +39,7 @@ jobs:
       - name: Decrypt Certificate and Provisioning Profile
         run: |
           mkdir -p ~/certs
-          echo "$P12_BASE64" | base64 --decode > ~/certs/13-6cert.p12 //new
+          echo "$P12_BASE64" | base64 --decode > ~/certs/13-6cert.p12 
           echo "$PROVISION_PROFILE_BASE64" | base64 --decode > ~/certs/profile.mobileprovision
 
         env:
