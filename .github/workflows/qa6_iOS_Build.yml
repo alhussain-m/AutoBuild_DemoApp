@@ -39,21 +39,19 @@ jobs:
       - name: Decrypt Certificate and Provisioning Profile
         run: |
           mkdir -p ~/certs
-          echo "$P12_BASE64" | base64 --decode > ~/certs/13-6cert.p12 
+          echo "$P12_BASE64" | base64 --decode > ~/certs/13-6cert.p12
           echo "$PROVISION_PROFILE_BASE64" | base64 --decode > ~/certs/profile.mobileprovision
-
         env:
           P12_BASE64: ${{ secrets.P12_BASE64 }}
           PROVISION_PROFILE_BASE64: ${{ secrets.PROVISION_PROFILE_BASE64 }}
 
-- name: Install Certificate
-  run: |
-    security create-keychain -p "" ios-build.keychain
-    security default-keychain -s ios-build.keychain
-    security unlock-keychain -p "" ios-build.keychain
-    security import ~/certs/13-6cert.p12 -k ios-build.keychain -f pkcs12 -P ${{ secrets.P12_PASSWORD }} -T /usr/bin/codesign
-    security set-key-partition-list -S apple-tool:,apple: -s -k "" ios-build.keychain
-
+      - name: Install Certificate
+        run: |
+          security create-keychain -p "" ios-build.keychain
+          security default-keychain -s ios-build.keychain
+          security unlock-keychain -p "" ios-build.keychain
+          security import ~/certs/13-6cert.p12 -k ios-build.keychain -f pkcs12 -P ${{ secrets.P12_PASSWORD }} -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" ios-build.keychain
 
       - name: Install Provisioning Profile
         run: |
