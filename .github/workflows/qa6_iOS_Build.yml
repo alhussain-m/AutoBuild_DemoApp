@@ -2,77 +2,85 @@ name: Build iOS IPA
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
   build:
     runs-on: macos-latest
+
+    env:
+      BUILD_DIR: build
+
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Node.js
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js (optional for Ionic/React Native/etc)
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
-      
-      - name: Install dependencies
+          node-version: '18'
+
+      - name: Set up Ruby (for Fastlane if needed)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.1
+
+      - name: Set up Xcode project cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Developer/Xcode/DerivedData
+            ~/Library/Caches/org.carthage.CarthageKit
+          key: ${{ runner.os }}-xcode-${{ hashFiles('**/*.xcodeproj/**', '**/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-xcode-
+
+      - name: Decrypt Certificate and Provisioning Profile
         run: |
-          npm install -g npm@latest
-          npm ci
-          npm audit fix --force
-      
-      - name: Build web assets
+          mkdir -p ~/certs
+          echo "$P12_BASE64" | base64 --decode > ~/certs/13-6cert.p12
+          echo "$PROVISION_PROFILE_BASE64" | base64 --decode > ~/certs/profile.mobileprovision
+
+        env:
+          P12_BASE64: ${{ secrets.P12_BASE64 }}
+          PROVISION_PROFILE_BASE64: ${{ secrets.PROVISION_PROFILE_BASE64 }}
+
+      - name: Install Certificate
         run: |
-          # Create minimum viable index.html if build fails
-          mkdir -p www
-          echo '<!DOCTYPE html>
-          <html lang="en">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>App</title>
-          </head>
-          <body>
-            <div id="root"></div>
-            <script src="main.js"></script>
-          </body>
-          </html>' > www/index.html
-          
-          # Try building (continue even if fails)
-          npm run build --if-present || ionic build || true
-      
-      - name: Verify web assets
+          security create-keychain -p "" ios-build.keychain
+          security default-keychain -s ios-build.keychain
+          security unlock-keychain -p "" ios-build.keychain
+          security import ~/certs/d13-6cert.p12 -k ios-build.keychain -P ${{ secrets.P12_PASSWORD }} -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" ios-build.keychain
+
+      - name: Install Provisioning Profile
         run: |
-          echo "Web directory contents:"
-          ls -la www/
-          [ -f www/index.html ] || exit 1
-      
-      - name: Sync Capacitor iOS
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          UUID=$(security cms -D -i ~/certs/profile.mobileprovision | plutil -extract UUID xml1 -o - - | grep -oE '[A-F0-9\-]{36}')
+          cp ~/certs/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
+
+      - name: Build .xcarchive
         run: |
-          npx cap sync ios
-          cd ios
-          pod install --repo-update
-      
-      - name: Build and export IPA
-        run: |
-          cd ios
-          xcodebuild archive \
-            -workspace App.xcworkspace \
-            -scheme App \
+          xcodebuild clean archive \
+            -workspace AutoBuild_DemoApp.xcworkspace \
+            -scheme AutoBuild_DemoApp \
             -configuration Release \
-            -archivePath build/App.xcarchive \
-            -allowProvisioningUpdates \
-            DEVELOPMENT_TEAM="8LE2DAQG25"
-          
+            -archivePath ${{ env.BUILD_DIR }}/AutoBuild_DemoApp.xcarchive \
+            CODE_SIGN_STYLE=Manual \
+            PROVISIONING_PROFILE_SPECIFIER=CitusHealth_Stage_Provisioning \
+            DEVELOPMENT_TEAM=55WZ35TL4Q \
+            PRODUCT_BUNDLE_IDENTIFIER=com.citus.stage
+
+      - name: Export IPA
+        run: |
           xcodebuild -exportArchive \
-            -archivePath build/App.xcarchive \
-            -exportPath build \
-            -exportOptionsPlist ExportOptions.plist \
-            -allowProvisioningUpdates
-      
-      - name: Upload artifact
+            -archivePath ${{ env.BUILD_DIR }}/AutoBuild_DemoApp.xcarchive \
+            -exportPath ${{ env.BUILD_DIR }}/output \
+            -exportOptionsPlist ios-ci/ExportOptions.plist
+
+      - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-ipa
-          path: ios/build/App.ipa
+          name: ios-app
+          path: ${{ env.BUILD_DIR }}/output/*.ipa

@@ -45,9 +45,5 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
-	<key>method</key>
-	<string>ad-hoc</string>
-	<key>teamID</key>
-	<string>8LE2DAQG25</string>
 </dict>
 </plist>
