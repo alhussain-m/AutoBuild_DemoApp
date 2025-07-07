@@ -1,8 +1,5 @@
 name: iOS Build & Generate IPA
 
-# This workflow builds iOS app and generates IPA files for distribution
-# No TestFlight upload - only IPA generation for manual distribution
-
 on:
   push:
     branches: [main, qa6, stage]
@@ -19,14 +16,6 @@ on:
         - qa8
         - stage
         - production
-      build_configuration:
-        description: 'Build configuration'
-        required: true
-        default: 'Release'
-        type: choice
-        options:
-        - Debug
-        - Release
 
 env:
   NODE_VERSION: '18.x'
@@ -71,18 +60,21 @@ jobs:
       run: |
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
           echo "BUILD_ENV=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
-        elif [ "${{ github.ref_name }}" = "main" ]; then
-          echo "BUILD_ENV=production" >> $GITHUB_OUTPUT
-        elif [ "${{ github.ref_name }}" = "stage" ]; then
-          echo "BUILD_ENV=stage" >> $GITHUB_OUTPUT
         else
           echo "BUILD_ENV=qa6" >> $GITHUB_OUTPUT
         fi
         
+    - name: Debug build environment
+      run: |
+        echo "Build environment: ${{ steps.env.outputs.BUILD_ENV }}"
+        echo "Available environment files:"
+        ls -la src/environments/ || echo "No environments folder found"
+        
     - name: Build web app
       run: |
         echo "🔨 Building web app for environment: ${{ steps.env.outputs.BUILD_ENV }}"
-        ionic build --configuration=${{ steps.env.outputs.BUILD_ENV }}
+        # Try production build first
+        ionic build --prod
         
     - name: Verify build output
       run: |
@@ -112,23 +104,6 @@ jobs:
         scope: '@citushealth-inc'
         registry-url: 'https://npm.pkg.github.com'
         cache: 'npm'
-        
-    - name: Determine build configuration
-      id: build-config
-      run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "BUILD_ENV=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
-          echo "BUILD_CONFIGURATION=${{ github.event.inputs.build_configuration }}" >> $GITHUB_OUTPUT
-        elif [ "${{ github.ref_name }}" = "main" ]; then
-          echo "BUILD_ENV=production" >> $GITHUB_OUTPUT
-          echo "BUILD_CONFIGURATION=Release" >> $GITHUB_OUTPUT
-        elif [ "${{ github.ref_name }}" = "stage" ]; then
-          echo "BUILD_ENV=stage" >> $GITHUB_OUTPUT
-          echo "BUILD_CONFIGURATION=Release" >> $GITHUB_OUTPUT
-        else
-          echo "BUILD_ENV=qa6" >> $GITHUB_OUTPUT
-          echo "BUILD_CONFIGURATION=Release" >> $GITHUB_OUTPUT
-        fi
         
     - name: Download web build
       uses: actions/download-artifact@v4
@@ -223,8 +198,6 @@ jobs:
       run: |
         cd ios/App
         echo "🏗️ Building iOS app..."
-        echo "Environment: ${{ steps.build-config.outputs.BUILD_ENV }}"
-        echo "Configuration: ${{ steps.build-config.outputs.BUILD_CONFIGURATION }}"
         echo "Bundle ID: ${{ env.BUNDLE_ID }}"
         echo "Team ID: ${{ env.DEVELOPMENT_TEAM }}"
         
@@ -235,26 +208,16 @@ jobs:
         xcodebuild archive \
           -workspace App.xcworkspace \
           -scheme ${{ env.SCHEME }} \
-          -configuration ${{ steps.build-config.outputs.BUILD_CONFIGURATION }} \
+          -configuration Release \
           -archivePath $RUNNER_TEMP/App.xcarchive \
           -allowProvisioningUpdates \
           CODE_SIGN_IDENTITY="iPhone Developer" \
           DEVELOPMENT_TEAM="${{ env.DEVELOPMENT_TEAM }}" \
           PROVISIONING_PROFILE_SPECIFIER="${{ env.PROVISIONING_PROFILE }}" \
           CODE_SIGN_STYLE=Manual \
-          PRODUCT_BUNDLE_IDENTIFIER="${{ env.BUNDLE_ID }}" \
-          -quiet
+          PRODUCT_BUNDLE_IDENTIFIER="${{ env.BUNDLE_ID }}"
           
         echo "✅ iOS archive completed successfully!"
-        
-        # Verify archive was created
-        if [ -d "$RUNNER_TEMP/App.xcarchive" ]; then
-          echo "📦 Archive created at: $RUNNER_TEMP/App.xcarchive"
-          ls -la $RUNNER_TEMP/App.xcarchive
-        else
-          echo "❌ Archive not found!"
-          exit 1
-        fi
         
     - name: Export IPA
       run: |
@@ -291,8 +254,7 @@ jobs:
         xcodebuild -exportArchive \
           -archivePath $RUNNER_TEMP/App.xcarchive \
           -exportPath $RUNNER_TEMP/export \
-          -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
-          -quiet
+          -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist
           
         echo "✅ IPA export completed successfully!"
         
@@ -312,15 +274,14 @@ jobs:
           echo "  Size: $IPA_SIZE"
         else
           echo "❌ IPA not found!"
-          echo "Export directory contents:"
-          ls -la $RUNNER_TEMP/export/
           exit 1
         fi
         
-    - name: Upload IPA artifact
+    # 📱 UPLOAD IPA AS GITHUB ARTIFACT (NOT TESTFLIGHT)
+    - name: Upload IPA to GitHub Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: AutoBuild_DemoApp-${{ steps.build-config.outputs.BUILD_ENV }}-${{ steps.build-config.outputs.BUILD_CONFIGURATION }}-${{ github.run_number }}
+        name: 📱-iOS-App-${{ needs.build-web.outputs.build-env }}-Build-${{ github.run_number }}
         path: ${{ runner.temp }}/export/*.ipa
         retention-days: 30
         
@@ -340,77 +301,23 @@ jobs:
     steps:
     - name: Build Summary
       run: |
-        echo "## 📱 iOS Build Summary"
+        echo "## 📱 iOS IPA Generated Successfully!"
         echo ""
-        echo "**Build Details:**"
-        echo "- Repository: ${{ github.repository }}"
-        echo "- Branch: ${{ github.ref_name }}"
-        echo "- Commit: ${{ github.sha }}"
-        echo "- Build Number: ${{ github.run_number }}"
-        echo "- Trigger: ${{ github.event_name }}"
+        echo "**✅ Your IPA file is ready for download!**"
+        echo ""
+        echo "**📥 How to Download:**"
+        echo "1. Scroll down to the 'Artifacts' section below"
+        echo "2. Click on the IPA file to download"
+        echo "3. The file will be available for 30 days"
+        echo ""
+        echo "**📱 Installation Options:**"
+        echo "- Install via Apple Configurator 2"
+        echo "- Install via Xcode Devices window"
+        echo "- Distribute to team members"
+        echo "- Upload to TestFlight manually (if needed later)"
+        echo ""
+        echo "**Build Info:**"
         echo "- Environment: ${{ needs.build-web.outputs.build-env }}"
-        echo ""
-        echo "**Results:**"
-        echo "- Web Build: ${{ needs.build-web.result }}"
-        echo "- iOS Build: ${{ needs.build-ios.result }}"
-        echo ""
-        if [[ "${{ needs.build-web.result }}" == "success" && "${{ needs.build-ios.result }}" == "success" ]]; then
-          echo "✅ **Build completed successfully!**"
-          echo ""
-          echo "**Generated Artifacts:**"
-          echo "- 📦 Web build artifact (7 days retention)"
-          echo "- 📱 iOS IPA file (30 days retention)"
-          echo ""
-          echo "**Download Instructions:**"
-          echo "1. Go to the 'Actions' tab in GitHub"
-          echo "2. Click on this workflow run"
-          echo "3. Scroll down to 'Artifacts' section"
-          echo "4. Download the IPA file"
-          echo ""
-          echo "**Installation Options:**"
-          echo "- Install via Apple Configurator 2"
-          echo "- Install via Xcode Devices window"
-          echo "- Distribute via enterprise distribution"
-          echo "- Upload to TestFlight manually"
-          echo ""
-          echo "**App Information:**"
-          echo "- Bundle ID: com.citus.stage"
-          echo "- Team ID: 8LE2DAQG25"
-          echo "- Distribution: Ad-hoc"
-        else
-          echo "❌ **Build failed!**"
-          echo ""
-          echo "**Troubleshooting:**"
-          echo ""
-          echo "**Common Issues:**"
-          echo "1. **Code Signing Issues:**"
-          echo "   - Verify IOS_CERTIFICATE_BASE64 secret is correct"
-          echo "   - Check IOS_CERTIFICATE_PASSWORD is valid"
-          echo "   - Ensure IOS_PROVISIONING_PROFILE_BASE64 matches your certificate"
-          echo ""
-          echo "2. **GitHub Secrets:**"
-          echo "   - IOS_CERTIFICATE_BASE64 (required)"
-          echo "   - IOS_CERTIFICATE_PASSWORD (required)"
-          echo "   - IOS_PROVISIONING_PROFILE_BASE64 (required)"
-          echo "   - KEYCHAIN_PASSWORD (required)"
-          echo "   - NPM_AUTH_TOKEN (required)"
-          echo ""
-          echo "3. **Certificate Setup:**"
-          echo "   - Certificate must be for development/distribution"
-          echo "   - Provisioning profile must match bundle ID: com.citus.stage"
-          echo "   - Team ID must match: 8LE2DAQG25"
-          echo ""
-          echo "4. **Dependencies:**"
-          echo "   - Check npm install issues"
-          echo "   - Verify Capacitor sync problems"
-          echo "   - Review CocoaPods installation"
-          echo ""
-          echo "**How to Generate Secrets:**"
-          echo "\`\`\`bash"
-          echo "# For certificate (.p12 file):"
-          echo "base64 -i YourCertificate.p12 | pbcopy"
-          echo ""
-          echo "# For provisioning profile (.mobileprovision file):"
-          echo "base64 -i YourProfile.mobileprovision | pbcopy"
-          echo "\`\`\`"
-        fi
+        echo "- Build Number: ${{ github.run_number }}"
+        echo "- Bundle ID: com.citus.stage"
+        echo "- Distribution: Ad-hoc"
