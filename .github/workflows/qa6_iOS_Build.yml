@@ -1,13 +1,15 @@
-name: iOS Build Test & IPA Generation
+name: iOS Build & Generate IPA
 
-# This workflow is for testing the iOS build setup and generating IPA files
-# Use this to validate your configuration and generate IPA files for distribution
+# This workflow builds iOS app and generates IPA files for distribution
+# No TestFlight upload - only IPA generation for manual distribution
 
 on:
+  push:
+    branches: [main, qa6, stage]
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Environment to test'
+        description: 'Build environment'
         required: true
         default: 'qa6'
         type: choice
@@ -17,16 +19,14 @@ on:
         - qa8
         - stage
         - production
-      test_type:
-        description: 'Test type'
+      build_configuration:
+        description: 'Build configuration'
         required: true
-        default: 'web-only'
+        default: 'Release'
         type: choice
         options:
-        - web-only
-        - ios-simulator
-        - full-test
-        - build-ipa
+        - Debug
+        - Release
 
 env:
   NODE_VERSION: '18.x'
@@ -37,11 +37,14 @@ env:
   PROVISIONING_PROFILE: 'CitusHealth Stage Provisioning'
 
 jobs:
-  test-web-build:
+  build-web:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: read
+    
+    outputs:
+      build-env: ${{ steps.env.outputs.BUILD_ENV }}
     
     steps:
     - name: Checkout code
@@ -63,29 +66,40 @@ jobs:
     - name: Install Ionic CLI
       run: npm install -g @ionic/cli
       
-    - name: Test web build
+    - name: Determine build environment
+      id: env
       run: |
-        echo "Testing web build for environment: ${{ github.event.inputs.environment }}"
-        ionic build --configuration=${{ github.event.inputs.environment }}
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "BUILD_ENV=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+        elif [ "${{ github.ref_name }}" = "main" ]; then
+          echo "BUILD_ENV=production" >> $GITHUB_OUTPUT
+        elif [ "${{ github.ref_name }}" = "stage" ]; then
+          echo "BUILD_ENV=stage" >> $GITHUB_OUTPUT
+        else
+          echo "BUILD_ENV=qa6" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Build web app
+      run: |
+        echo "🔨 Building web app for environment: ${{ steps.env.outputs.BUILD_ENV }}"
+        ionic build --configuration=${{ steps.env.outputs.BUILD_ENV }}
         
     - name: Verify build output
       run: |
-        echo "Checking build output..."
+        echo "✅ Checking build output..."
         ls -la www/
-        echo "Build completed successfully!"
+        echo "📦 Web build completed successfully!"
         
-    - name: Upload web build for iOS testing
-      if: github.event.inputs.test_type != 'web-only'
+    - name: Upload web build artifact
       uses: actions/upload-artifact@v4
       with:
-        name: web-build-${{ github.event.inputs.environment }}
+        name: web-build-${{ steps.env.outputs.BUILD_ENV }}
         path: www/
         retention-days: 7
 
-  test-ios-setup:
-    needs: test-web-build
+  build-ios:
+    needs: build-web
     runs-on: macos-14
-    if: github.event.inputs.test_type != 'web-only'
     
     steps:
     - name: Checkout code
@@ -99,10 +113,27 @@ jobs:
         registry-url: 'https://npm.pkg.github.com'
         cache: 'npm'
         
+    - name: Determine build configuration
+      id: build-config
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "BUILD_ENV=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          echo "BUILD_CONFIGURATION=${{ github.event.inputs.build_configuration }}" >> $GITHUB_OUTPUT
+        elif [ "${{ github.ref_name }}" = "main" ]; then
+          echo "BUILD_ENV=production" >> $GITHUB_OUTPUT
+          echo "BUILD_CONFIGURATION=Release" >> $GITHUB_OUTPUT
+        elif [ "${{ github.ref_name }}" = "stage" ]; then
+          echo "BUILD_ENV=stage" >> $GITHUB_OUTPUT
+          echo "BUILD_CONFIGURATION=Release" >> $GITHUB_OUTPUT
+        else
+          echo "BUILD_ENV=qa6" >> $GITHUB_OUTPUT
+          echo "BUILD_CONFIGURATION=Release" >> $GITHUB_OUTPUT
+        fi
+        
     - name: Download web build
       uses: actions/download-artifact@v4
       with:
-        name: web-build-${{ github.event.inputs.environment }}
+        name: web-build-${{ needs.build-web.outputs.build-env }}
         path: www/
         
     - name: Install dependencies
@@ -129,39 +160,28 @@ jobs:
         gem install cocoapods
         pod --version
         
-    - name: Test Capacitor sync
+    - name: Sync Capacitor
       run: |
-        echo "Testing Capacitor sync..."
+        echo "🔄 Syncing Capacitor..."
         npx cap sync ios
-        echo "Capacitor sync completed!"
+        echo "✅ Capacitor sync completed!"
         
-    - name: Test CocoaPods installation
+    - name: Install CocoaPods dependencies
       run: |
-        echo "Testing CocoaPods installation..."
+        echo "📦 Installing CocoaPods dependencies..."
         cd ios/App
         pod install --repo-update
-        echo "CocoaPods installation completed!"
+        echo "✅ CocoaPods installation completed!"
         
-    - name: Test iOS build (Simulator only)
-      if: github.event.inputs.test_type == 'ios-simulator'
-      run: |
-        echo "Testing iOS build for simulator..."
-        cd ios/App
-        xcodebuild -workspace App.xcworkspace \
-          -scheme App \
-          -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
-          -configuration Debug \
-          build
-        echo "iOS simulator build completed!"
-        
-    - name: Setup code signing for IPA build
-      if: github.event.inputs.test_type == 'full-test' || github.event.inputs.test_type == 'build-ipa'
+    - name: Setup code signing
       env:
         IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
         IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
         IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
         KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
       run: |
+        echo "🔐 Setting up code signing..."
+        
         # Create variables
         CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
         PP_PATH=$RUNNER_TEMP/build_pp.mobileprovision
@@ -187,19 +207,26 @@ jobs:
         echo "✅ Code signing setup completed"
         
     - name: Update version and build number
-      if: github.event.inputs.test_type == 'full-test' || github.event.inputs.test_type == 'build-ipa'
       run: |
         cd ios/App
+        echo "📝 Updating version and build number..."
+        
         # Update build number with GitHub run number
         /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" App/Info.plist
-        echo "Updated build number to: ${{ github.run_number }}"
         
-    - name: Build and Archive iOS app for IPA
-      if: github.event.inputs.test_type == 'full-test' || github.event.inputs.test_type == 'build-ipa'
+        # Display current version info
+        echo "📱 App Version Info:"
+        echo "Bundle Version: $(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" App/Info.plist)"
+        echo "Marketing Version: $(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" App/Info.plist)"
+        
+    - name: Build and Archive iOS app
       run: |
         cd ios/App
-        echo "Building iOS app for IPA generation..."
-        echo "Environment: ${{ github.event.inputs.environment }}"
+        echo "🏗️ Building iOS app..."
+        echo "Environment: ${{ steps.build-config.outputs.BUILD_ENV }}"
+        echo "Configuration: ${{ steps.build-config.outputs.BUILD_CONFIGURATION }}"
+        echo "Bundle ID: ${{ env.BUNDLE_ID }}"
+        echo "Team ID: ${{ env.DEVELOPMENT_TEAM }}"
         
         # Clean build folder
         xcodebuild clean -workspace App.xcworkspace -scheme ${{ env.SCHEME }}
@@ -208,20 +235,21 @@ jobs:
         xcodebuild archive \
           -workspace App.xcworkspace \
           -scheme ${{ env.SCHEME }} \
-          -configuration Release \
+          -configuration ${{ steps.build-config.outputs.BUILD_CONFIGURATION }} \
           -archivePath $RUNNER_TEMP/App.xcarchive \
           -allowProvisioningUpdates \
           CODE_SIGN_IDENTITY="iPhone Developer" \
           DEVELOPMENT_TEAM="${{ env.DEVELOPMENT_TEAM }}" \
           PROVISIONING_PROFILE_SPECIFIER="${{ env.PROVISIONING_PROFILE }}" \
           CODE_SIGN_STYLE=Manual \
-          PRODUCT_BUNDLE_IDENTIFIER="${{ env.BUNDLE_ID }}"
+          PRODUCT_BUNDLE_IDENTIFIER="${{ env.BUNDLE_ID }}" \
+          -quiet
           
         echo "✅ iOS archive completed successfully!"
         
         # Verify archive was created
         if [ -d "$RUNNER_TEMP/App.xcarchive" ]; then
-          echo "Archive created at: $RUNNER_TEMP/App.xcarchive"
+          echo "📦 Archive created at: $RUNNER_TEMP/App.xcarchive"
           ls -la $RUNNER_TEMP/App.xcarchive
         else
           echo "❌ Archive not found!"
@@ -229,8 +257,9 @@ jobs:
         fi
         
     - name: Export IPA
-      if: github.event.inputs.test_type == 'full-test' || github.event.inputs.test_type == 'build-ipa'
       run: |
+        echo "📤 Exporting IPA..."
+        
         # Create export options plist for ad-hoc distribution
         cat > $RUNNER_TEMP/ExportOptions.plist << EOF
         <?xml version="1.0" encoding="UTF-8"?>
@@ -258,27 +287,29 @@ jobs:
         </plist>
         EOF
         
-        echo "Export options:"
-        cat $RUNNER_TEMP/ExportOptions.plist
-        
         # Export IPA
         xcodebuild -exportArchive \
           -archivePath $RUNNER_TEMP/App.xcarchive \
           -exportPath $RUNNER_TEMP/export \
-          -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist
+          -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
+          -quiet
           
         echo "✅ IPA export completed successfully!"
         
         # Verify IPA was created
         if ls $RUNNER_TEMP/export/*.ipa 1> /dev/null 2>&1; then
-          echo "IPA files created:"
+          echo "📱 IPA files created:"
           ls -la $RUNNER_TEMP/export/
           
           # Get IPA info
           IPA_PATH=$(find $RUNNER_TEMP/export -name "*.ipa" | head -1)
           IPA_SIZE=$(ls -lh "$IPA_PATH" | awk '{print $5}')
-          echo "IPA Path: $IPA_PATH"
-          echo "IPA Size: $IPA_SIZE"
+          IPA_NAME=$(basename "$IPA_PATH")
+          
+          echo "📦 IPA Details:"
+          echo "  Name: $IPA_NAME"
+          echo "  Path: $IPA_PATH"
+          echo "  Size: $IPA_SIZE"
         else
           echo "❌ IPA not found!"
           echo "Export directory contents:"
@@ -287,84 +318,99 @@ jobs:
         fi
         
     - name: Upload IPA artifact
-      if: github.event.inputs.test_type == 'full-test' || github.event.inputs.test_type == 'build-ipa'
       uses: actions/upload-artifact@v4
       with:
-        name: ios-app-${{ github.event.inputs.environment }}-${{ github.run_number }}
+        name: AutoBuild_DemoApp-${{ steps.build-config.outputs.BUILD_ENV }}-${{ steps.build-config.outputs.BUILD_CONFIGURATION }}-${{ github.run_number }}
         path: ${{ runner.temp }}/export/*.ipa
         retention-days: 30
         
-    - name: List available simulators
-      if: github.event.inputs.test_type != 'build-ipa'
-      run: |
-        echo "Available iOS simulators:"
-        xcrun simctl list devices available
-        
-    - name: Verify iOS project structure
-      if: github.event.inputs.test_type != 'build-ipa'
-      run: |
-        echo "iOS project structure:"
-        ls -la ios/App/
-        echo ""
-        echo "Capacitor configuration:"
-        cat capacitor.config.ts
-        
     - name: Clean up keychain
-      if: always() && (github.event.inputs.test_type == 'full-test' || github.event.inputs.test_type == 'build-ipa')
+      if: always()
       run: |
         if [ -f "$RUNNER_TEMP/app-signing.keychain-db" ]; then
           security delete-keychain $RUNNER_TEMP/app-signing.keychain-db
-          echo "✅ Keychain cleaned up"
+          echo "🧹 Keychain cleaned up"
         fi
         
-  test-summary:
-    needs: [test-web-build, test-ios-setup]
+  build-summary:
+    needs: [build-web, build-ios]
     runs-on: ubuntu-latest
     if: always()
     
     steps:
-    - name: Test Summary
+    - name: Build Summary
       run: |
-        echo "## iOS Build Test Summary"
+        echo "## 📱 iOS Build Summary"
         echo ""
-        echo "**Environment:** ${{ github.event.inputs.environment }}"
-        echo "**Test Type:** ${{ github.event.inputs.test_type }}"
+        echo "**Build Details:**"
+        echo "- Repository: ${{ github.repository }}"
+        echo "- Branch: ${{ github.ref_name }}"
+        echo "- Commit: ${{ github.sha }}"
+        echo "- Build Number: ${{ github.run_number }}"
+        echo "- Trigger: ${{ github.event_name }}"
+        echo "- Environment: ${{ needs.build-web.outputs.build-env }}"
         echo ""
         echo "**Results:**"
-        echo "- Web Build: ${{ needs.test-web-build.result }}"
-        if [[ "${{ github.event.inputs.test_type }}" != "web-only" ]]; then
-          echo "- iOS Setup: ${{ needs.test-ios-setup.result }}"
-        fi
+        echo "- Web Build: ${{ needs.build-web.result }}"
+        echo "- iOS Build: ${{ needs.build-ios.result }}"
         echo ""
-        if [[ "${{ needs.test-web-build.result }}" == "success" ]] && [[ "${{ needs.test-ios-setup.result }}" == "success" || "${{ github.event.inputs.test_type }}" == "web-only" ]]; then
-          echo "✅ **All tests passed!** Your iOS CI/CD setup is ready."
+        if [[ "${{ needs.build-web.result }}" == "success" && "${{ needs.build-ios.result }}" == "success" ]]; then
+          echo "✅ **Build completed successfully!**"
           echo ""
-          if [[ "${{ github.event.inputs.test_type }}" == "build-ipa" || "${{ github.event.inputs.test_type }}" == "full-test" ]]; then
-            echo "**Generated Artifacts:**"
-            echo "- Web build artifact"
-            echo "- iOS IPA file"
-            echo ""
-            echo "**Next Steps:**"
-            echo "1. Download the IPA from the Actions artifacts"
-            echo "2. Install on device using tools like Apple Configurator 2"
-            echo "3. Test the app functionality"
-            echo "4. Upload to TestFlight manually if needed"
-          else
-            echo "**Next Steps:**"
-            echo "1. Set up code signing certificates (for archive builds)"
-            echo "2. Configure GitHub secrets for IPA generation"
-            echo "3. Test the full iOS CI/CD pipeline with 'build-ipa' option"
-          fi
+          echo "**Generated Artifacts:**"
+          echo "- 📦 Web build artifact (7 days retention)"
+          echo "- 📱 iOS IPA file (30 days retention)"
+          echo ""
+          echo "**Download Instructions:**"
+          echo "1. Go to the 'Actions' tab in GitHub"
+          echo "2. Click on this workflow run"
+          echo "3. Scroll down to 'Artifacts' section"
+          echo "4. Download the IPA file"
+          echo ""
+          echo "**Installation Options:**"
+          echo "- Install via Apple Configurator 2"
+          echo "- Install via Xcode Devices window"
+          echo "- Distribute via enterprise distribution"
+          echo "- Upload to TestFlight manually"
+          echo ""
+          echo "**App Information:**"
+          echo "- Bundle ID: com.citus.stage"
+          echo "- Team ID: 8LE2DAQG25"
+          echo "- Distribution: Ad-hoc"
         else
-          echo "❌ **Some tests failed.** Please check the logs above."
+          echo "❌ **Build failed!**"
+          echo ""
+          echo "**Troubleshooting:**"
           echo ""
           echo "**Common Issues:**"
-          echo "- Missing NPM_AUTH_TOKEN secret"
-          echo "- Node.js dependency conflicts"
-          echo "- Capacitor configuration issues"
-          echo "- CocoaPods installation problems"
-          if [[ "${{ github.event.inputs.test_type }}" == "build-ipa" || "${{ github.event.inputs.test_type }}" == "full-test" ]]; then
-            echo "- Missing code signing certificates or provisioning profiles"
-            echo "- Incorrect GitHub secrets configuration"
-          fi
+          echo "1. **Code Signing Issues:**"
+          echo "   - Verify IOS_CERTIFICATE_BASE64 secret is correct"
+          echo "   - Check IOS_CERTIFICATE_PASSWORD is valid"
+          echo "   - Ensure IOS_PROVISIONING_PROFILE_BASE64 matches your certificate"
+          echo ""
+          echo "2. **GitHub Secrets:**"
+          echo "   - IOS_CERTIFICATE_BASE64 (required)"
+          echo "   - IOS_CERTIFICATE_PASSWORD (required)"
+          echo "   - IOS_PROVISIONING_PROFILE_BASE64 (required)"
+          echo "   - KEYCHAIN_PASSWORD (required)"
+          echo "   - NPM_AUTH_TOKEN (required)"
+          echo ""
+          echo "3. **Certificate Setup:**"
+          echo "   - Certificate must be for development/distribution"
+          echo "   - Provisioning profile must match bundle ID: com.citus.stage"
+          echo "   - Team ID must match: 8LE2DAQG25"
+          echo ""
+          echo "4. **Dependencies:**"
+          echo "   - Check npm install issues"
+          echo "   - Verify Capacitor sync problems"
+          echo "   - Review CocoaPods installation"
+          echo ""
+          echo "**How to Generate Secrets:**"
+          echo "\`\`\`bash"
+          echo "# For certificate (.p12 file):"
+          echo "base64 -i YourCertificate.p12 | pbcopy"
+          echo ""
+          echo "# For provisioning profile (.mobileprovision file):"
+          echo "base64 -i YourProfile.mobileprovision | pbcopy"
+          echo "\`\`\`"
         fi
