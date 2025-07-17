@@ -1,5 +1,5 @@
 import { Component } from '@angular/core';
-import { environment } from 'src/environments/environment.prod';
+import { environment } from 'src/environments/environment';
 
 @Component({
   selector: 'app-home',
@@ -10,6 +10,6 @@ export class HomePage {
   envName: string;
   constructor() {
     this.envName = environment.envName;
-    console.log("new logs");
+    console.log("Environment:", this.envName);
   }
 }

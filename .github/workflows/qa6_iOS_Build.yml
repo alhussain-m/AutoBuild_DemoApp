@@ -13,12 +13,10 @@ on:
         options:
         - qa6
         - qa7
-        - qa8
-        - stage
         - production
 
 env:
-  NODE_VERSION: '18.x'
+  NODE_VERSION: '20.x'
   XCODE_VERSION: '15.2'
   SCHEME: 'App'
   BUNDLE_ID: 'com.citus.stage'
@@ -31,14 +29,14 @@ jobs:
     permissions:
       contents: read
       packages: read
-    
+
     outputs:
       build-env: ${{ steps.env.outputs.BUILD_ENV }}
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
@@ -46,42 +44,46 @@ jobs:
         scope: '@citushealth-inc'
         registry-url: 'https://npm.pkg.github.com'
         cache: 'npm'
-        
+
     - name: Install dependencies
       run: npm install --force
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
-        
+
     - name: Install Ionic CLI
       run: npm install -g @ionic/cli
-      
+
     - name: Determine build environment
       id: env
       run: |
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
           echo "BUILD_ENV=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+        elif [ "${{ github.ref_name }}" = "main" ]; then
+          echo "BUILD_ENV=production" >> $GITHUB_OUTPUT
         else
           echo "BUILD_ENV=qa6" >> $GITHUB_OUTPUT
         fi
-        
+
     - name: Debug build environment
       run: |
         echo "Build environment: ${{ steps.env.outputs.BUILD_ENV }}"
         echo "Available environment files:"
-        ls -la src/environments/ || echo "No environments folder found"
-        
+        ls -la src/environments/
+        echo "Angular configurations available:"
+        cat angular.json | grep -A 2 '"configurations"' || echo "No configurations found"
+
     - name: Build web app
       run: |
         echo "🔨 Building web app for environment: ${{ steps.env.outputs.BUILD_ENV }}"
-        # Try production build first
-        ionic build --prod
-        
+        # Use correct Ionic build command with Angular configuration
+        ionic build --configuration=${{ steps.env.outputs.BUILD_ENV }}
+
     - name: Verify build output
       run: |
         echo "✅ Checking build output..."
         ls -la www/
         echo "📦 Web build completed successfully!"
-        
+
     - name: Upload web build artifact
       uses: actions/upload-artifact@v4
       with:
@@ -92,11 +94,11 @@ jobs:
   build-ios:
     needs: build-web
     runs-on: macos-14
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
@@ -104,43 +106,43 @@ jobs:
         scope: '@citushealth-inc'
         registry-url: 'https://npm.pkg.github.com'
         cache: 'npm'
-        
+
     - name: Download web build
       uses: actions/download-artifact@v4
       with:
         name: web-build-${{ needs.build-web.outputs.build-env }}
         path: www/
-        
+
     - name: Install dependencies
       run: npm install --force
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
-        
+
     - name: Install CLI tools
       run: npm install -g @ionic/cli @capacitor/cli
-      
+
     - name: Setup Xcode
       uses: maxim-lobanov/setup-xcode@v1
       with:
         xcode-version: ${{ env.XCODE_VERSION }}
-        
+
     - name: Setup Ruby for CocoaPods
       uses: ruby/setup-ruby@v1
       with:
         ruby-version: '3.1'
         bundler-cache: true
-        
+
     - name: Install CocoaPods
       run: |
         gem install cocoapods
         pod --version
-        
+
     - name: Sync Capacitor
       run: |
         echo "🔄 Syncing Capacitor..."
         npx cap sync ios
         echo "✅ Capacitor sync completed!"
-        
+
     - name: Install CocoaPods dependencies
       run: |
         echo "📦 Installing CocoaPods dependencies..."
@@ -156,73 +158,118 @@ jobs:
         KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
       run: |
         echo "🔐 Setting up code signing..."
-        
+
+        # Validate secrets exist
+        if [ -z "$IOS_CERTIFICATE_BASE64" ]; then
+          echo "❌ IOS_CERTIFICATE_BASE64 secret is missing"
+          exit 1
+        fi
+
+        if [ -z "$IOS_PROVISIONING_PROFILE_BASE64" ]; then
+          echo "❌ IOS_PROVISIONING_PROFILE_BASE64 secret is missing"
+          exit 1
+        fi
+
         # Create variables
         CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
         PP_PATH=$RUNNER_TEMP/build_pp.mobileprovision
         KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-        
+
         # Import certificate and provisioning profile from secrets
         echo -n "$IOS_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
         echo -n "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode -o $PP_PATH
-        
+
+        # Verify files were created
+        if [ ! -f "$CERTIFICATE_PATH" ]; then
+          echo "❌ Certificate file not created"
+          exit 1
+        fi
+
+        if [ ! -f "$PP_PATH" ]; then
+          echo "❌ Provisioning profile file not created"
+          exit 1
+        fi
+
         # Create temporary keychain
         security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
         security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
         security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-        
+
         # Import certificate to keychain
         security import $CERTIFICATE_PATH -P "$IOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
         security list-keychain -d user -s $KEYCHAIN_PATH
-        
+
         # Apply provisioning profile
         mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
         cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
-        
+
+        # List installed profiles for debugging
+        echo "📋 Installed provisioning profiles:"
+        ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
+
         echo "✅ Code signing setup completed"
         
     - name: Update version and build number
       run: |
         cd ios/App
         echo "📝 Updating version and build number..."
-        
+
         # Update build number with GitHub run number
         /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" App/Info.plist
-        
+
         # Display current version info
         echo "📱 App Version Info:"
         echo "Bundle Version: $(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" App/Info.plist)"
         echo "Marketing Version: $(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" App/Info.plist)"
-        
+
     - name: Build and Archive iOS app
       run: |
         cd ios/App
         echo "🏗️ Building iOS app..."
         echo "Bundle ID: ${{ env.BUNDLE_ID }}"
         echo "Team ID: ${{ env.DEVELOPMENT_TEAM }}"
-        
+        echo "Provisioning Profile: ${{ env.PROVISIONING_PROFILE }}"
+
+        # List available schemes
+        echo "📋 Available schemes:"
+        xcodebuild -workspace App.xcworkspace -list
+
+        # List available provisioning profiles
+        echo "📋 Available provisioning profiles:"
+        security find-identity -v -p codesigning
+
         # Clean build folder
         xcodebuild clean -workspace App.xcworkspace -scheme ${{ env.SCHEME }}
-        
-        # Build and archive
+
+        # Build and archive with better error handling
+        set -e
         xcodebuild archive \
           -workspace App.xcworkspace \
           -scheme ${{ env.SCHEME }} \
           -configuration Release \
           -archivePath $RUNNER_TEMP/App.xcarchive \
           -allowProvisioningUpdates \
-          CODE_SIGN_IDENTITY="iPhone Developer" \
+          CODE_SIGN_IDENTITY="iPhone Distribution" \
           DEVELOPMENT_TEAM="${{ env.DEVELOPMENT_TEAM }}" \
           PROVISIONING_PROFILE_SPECIFIER="${{ env.PROVISIONING_PROFILE }}" \
           CODE_SIGN_STYLE=Manual \
-          PRODUCT_BUNDLE_IDENTIFIER="${{ env.BUNDLE_ID }}"
-          
-        echo "✅ iOS archive completed successfully!"
+          PRODUCT_BUNDLE_IDENTIFIER="${{ env.BUNDLE_ID }}" \
+          -quiet
+
+        # Verify archive was created
+        if [ -d "$RUNNER_TEMP/App.xcarchive" ]; then
+          echo "✅ iOS archive completed successfully!"
+          echo "📦 Archive contents:"
+          ls -la $RUNNER_TEMP/App.xcarchive/
+        else
+          echo "❌ Archive not found!"
+          exit 1
+        fi
         
     - name: Export IPA
       run: |
         echo "📤 Exporting IPA..."
-        
+
         # Create export options plist for ad-hoc distribution
         cat > $RUNNER_TEMP/ExportOptions.plist << EOF
         <?xml version="1.0" encoding="UTF-8"?>
@@ -249,31 +296,47 @@ jobs:
         </dict>
         </plist>
         EOF
-        
-        # Export IPA
+
+        echo "📋 Export options:"
+        cat $RUNNER_TEMP/ExportOptions.plist
+
+        # Create export directory
+        mkdir -p $RUNNER_TEMP/export
+
+        # Export IPA with error handling
+        set -e
         xcodebuild -exportArchive \
           -archivePath $RUNNER_TEMP/App.xcarchive \
           -exportPath $RUNNER_TEMP/export \
-          -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist
-          
+          -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
+          -verbose
+
         echo "✅ IPA export completed successfully!"
-        
+
         # Verify IPA was created
+        echo "📁 Export directory contents:"
+        ls -la $RUNNER_TEMP/export/
+
         if ls $RUNNER_TEMP/export/*.ipa 1> /dev/null 2>&1; then
           echo "📱 IPA files created:"
-          ls -la $RUNNER_TEMP/export/
-          
+          ls -la $RUNNER_TEMP/export/*.ipa
+
           # Get IPA info
           IPA_PATH=$(find $RUNNER_TEMP/export -name "*.ipa" | head -1)
           IPA_SIZE=$(ls -lh "$IPA_PATH" | awk '{print $5}')
           IPA_NAME=$(basename "$IPA_PATH")
-          
+
           echo "📦 IPA Details:"
           echo "  Name: $IPA_NAME"
           echo "  Path: $IPA_PATH"
           echo "  Size: $IPA_SIZE"
+
+          # Verify IPA is valid
+          unzip -l "$IPA_PATH" | head -20
         else
           echo "❌ IPA not found!"
+          echo "Export directory contents:"
+          find $RUNNER_TEMP/export -type f
           exit 1
         fi
         
@@ -284,7 +347,7 @@ jobs:
         name: 📱-iOS-App-${{ needs.build-web.outputs.build-env }}-Build-${{ github.run_number }}
         path: ${{ runner.temp }}/export/*.ipa
         retention-days: 30
-        
+
     - name: Clean up keychain
       if: always()
       run: |
@@ -292,32 +355,56 @@ jobs:
           security delete-keychain $RUNNER_TEMP/app-signing.keychain-db
           echo "🧹 Keychain cleaned up"
         fi
-        
+
   build-summary:
     needs: [build-web, build-ios]
     runs-on: ubuntu-latest
     if: always()
-    
+
     steps:
     - name: Build Summary
       run: |
-        echo "## 📱 iOS IPA Generated Successfully!"
+        echo "## 📱 iOS Build Summary"
         echo ""
-        echo "**✅ Your IPA file is ready for download!**"
-        echo ""
-        echo "**📥 How to Download:**"
-        echo "1. Scroll down to the 'Artifacts' section below"
-        echo "2. Click on the IPA file to download"
-        echo "3. The file will be available for 30 days"
-        echo ""
-        echo "**📱 Installation Options:**"
-        echo "- Install via Apple Configurator 2"
-        echo "- Install via Xcode Devices window"
-        echo "- Distribute to team members"
-        echo "- Upload to TestFlight manually (if needed later)"
-        echo ""
-        echo "**Build Info:**"
-        echo "- Environment: ${{ needs.build-web.outputs.build-env }}"
-        echo "- Build Number: ${{ github.run_number }}"
-        echo "- Bundle ID: com.citus.stage"
-        echo "- Distribution: Ad-hoc"
+        if [[ "${{ needs.build-web.result }}" == "success" && "${{ needs.build-ios.result }}" == "success" ]]; then
+          echo "**✅ iOS IPA Generated Successfully!**"
+          echo ""
+          echo "**📥 How to Download:**"
+          echo "1. Scroll down to the 'Artifacts' section below"
+          echo "2. Click on the IPA file to download"
+          echo "3. The file will be available for 30 days"
+          echo ""
+          echo "**📱 Installation Options:**"
+          echo "- Install via Apple Configurator 2"
+          echo "- Install via Xcode Devices window"
+          echo "- Distribute to team members"
+          echo "- Upload to TestFlight manually (if needed later)"
+          echo ""
+          echo "**Build Info:**"
+          echo "- Environment: ${{ needs.build-web.outputs.build-env }}"
+          echo "- Build Number: ${{ github.run_number }}"
+          echo "- Bundle ID: com.citus.stage"
+          echo "- Distribution: Ad-hoc"
+        else
+          echo "**❌ Build Failed!**"
+          echo ""
+          echo "**Required GitHub Secrets:**"
+          echo "- IOS_CERTIFICATE_BASE64 (Development/Distribution certificate in .p12 format, base64 encoded)"
+          echo "- IOS_CERTIFICATE_PASSWORD (Password for the .p12 certificate)"
+          echo "- IOS_PROVISIONING_PROFILE_BASE64 (Provisioning profile in .mobileprovision format, base64 encoded)"
+          echo "- KEYCHAIN_PASSWORD (Any secure password for temporary keychain)"
+          echo "- NPM_AUTH_TOKEN (GitHub package registry token)"
+          echo ""
+          echo "**How to generate secrets:**"
+          echo "\`\`\`bash"
+          echo "# For certificate (.p12 file):"
+          echo "base64 -i YourCertificate.p12 | pbcopy"
+          echo ""
+          echo "# For provisioning profile (.mobileprovision file):"
+          echo "base64 -i YourProfile.mobileprovision | pbcopy"
+          echo "\`\`\`"
+          echo ""
+          echo "**Build Results:**"
+          echo "- Web Build: ${{ needs.build-web.result }}"
+          echo "- iOS Build: ${{ needs.build-ios.result }}"
+        fi
