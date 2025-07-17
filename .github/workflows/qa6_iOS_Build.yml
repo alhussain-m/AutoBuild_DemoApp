@@ -75,8 +75,10 @@ jobs:
     - name: Build web app
       run: |
         echo "🔨 Building web app for environment: ${{ steps.env.outputs.BUILD_ENV }}"
-        # Use correct Ionic build command with Angular configuration
-        ionic build --configuration=${{ steps.env.outputs.BUILD_ENV }}
+
+        # Make build script executable and run it
+        chmod +x scripts/build-web.sh
+        ./scripts/build-web.sh ${{ steps.env.outputs.BUILD_ENV }}
 
     - name: Verify build output
       run: |
