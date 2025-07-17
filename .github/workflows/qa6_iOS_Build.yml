@@ -201,6 +201,26 @@ jobs:
         security import $CERTIFICATE_PATH -P "$IOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
         security list-keychain -d user -s $KEYCHAIN_PATH
 
+        # Verify certificate was imported correctly
+        echo "🔍 Verifying imported certificates:"
+        security find-identity -v -p codesigning $KEYCHAIN_PATH
+
+        # Check for iPhone Distribution certificate specifically
+        if security find-identity -v -p codesigning $KEYCHAIN_PATH | grep -q "iPhone Distribution"; then
+          echo "✅ iPhone Distribution certificate found"
+        else
+          echo "⚠️  iPhone Distribution certificate not found, checking for alternatives..."
+          security find-identity -v -p codesigning $KEYCHAIN_PATH | grep -i distribution || true
+          security find-identity -v -p codesigning $KEYCHAIN_PATH | grep -i developer || true
+
+          # Try to find any valid signing identity
+          SIGNING_IDENTITY=$(security find-identity -v -p codesigning $KEYCHAIN_PATH | head -1 | awk '{print $2}' | tr -d '"')
+          if [ -n "$SIGNING_IDENTITY" ]; then
+            echo "📝 Will use signing identity: $SIGNING_IDENTITY"
+            echo "SIGNING_IDENTITY=$SIGNING_IDENTITY" >> $GITHUB_ENV
+          fi
+        fi
+
         # Apply provisioning profile
         mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
         cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
@@ -243,6 +263,26 @@ jobs:
         # Clean build folder
         xcodebuild clean -workspace App.xcworkspace -scheme ${{ env.SCHEME }}
 
+        # Configure Pods targets to use automatic provisioning (fixes Capacitor errors)
+        echo "🔧 Configuring Pods code signing..."
+
+        # Update Pods project settings to avoid provisioning profile conflicts
+        if [ -f "Pods/Pods.xcodeproj/project.pbxproj" ]; then
+          # Set all Pods targets to use automatic code signing
+          sed -i '' 's/CODE_SIGN_STYLE = Manual;/CODE_SIGN_STYLE = Automatic;/g' Pods/Pods.xcodeproj/project.pbxproj
+          sed -i '' 's/PROVISIONING_PROFILE_SPECIFIER = ".*";/PROVISIONING_PROFILE_SPECIFIER = "";/g' Pods/Pods.xcodeproj/project.pbxproj
+          echo "✅ Pods configured for automatic code signing"
+        fi
+
+        # Determine code signing identity to use
+        if [ -n "$SIGNING_IDENTITY" ]; then
+          CODE_SIGN_ID="$SIGNING_IDENTITY"
+          echo "🔑 Using detected signing identity: $CODE_SIGN_ID"
+        else
+          CODE_SIGN_ID="iPhone Distribution"
+          echo "🔑 Using default signing identity: $CODE_SIGN_ID"
+        fi
+
         # Build and archive with better error handling
         set -e
         xcodebuild archive \
@@ -251,10 +291,11 @@ jobs:
           -configuration Release \
           -archivePath $RUNNER_TEMP/App.xcarchive \
           -allowProvisioningUpdates \
-          CODE_SIGN_IDENTITY="iPhone Distribution" \
+          CODE_SIGN_IDENTITY="$CODE_SIGN_ID" \
           DEVELOPMENT_TEAM="${{ env.DEVELOPMENT_TEAM }}" \
           PROVISIONING_PROFILE_SPECIFIER="${{ env.PROVISIONING_PROFILE }}" \
           CODE_SIGN_STYLE=Manual \
+          ONLY_ACTIVE_ARCH=NO \
           PRODUCT_BUNDLE_IDENTIFIER="${{ env.BUNDLE_ID }}" \
           -quiet
 

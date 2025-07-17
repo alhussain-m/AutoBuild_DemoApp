@@ -52,37 +52,68 @@ The project includes a robust build script that handles fallbacks:
 
 #### **Symptoms:**
 - iOS build fails at code signing step
-- Certificate or provisioning profile errors
+- `No signing certificate "iOS Distribution" found`
+- `Provisioning profile doesn't include the currently selected device`
+- Capacitor/Pods provisioning profile errors
 
 #### **Solutions:**
 
-##### **A. Verify GitHub Secrets**
+##### **A. Certificate Type Issues**
+**Problem:** Wrong certificate type (Development vs Distribution)
+```bash
+# Check your certificate type in Keychain Access:
+# 1. Open Keychain Access
+# 2. Look for certificate name - should contain "iPhone Distribution"
+# 3. NOT "iPhone Developer" or "Apple Development"
+
+# For ad-hoc distribution, you need:
+# - iPhone Distribution certificate
+# - Ad-hoc provisioning profile
+```
+
+##### **B. Verify GitHub Secrets**
 Ensure all secrets are correctly set:
 ```bash
 # Generate secrets using the helper script
 ./scripts/generate-secrets.sh
 
 # Required secrets:
-# - IOS_CERTIFICATE_BASE64
-# - IOS_CERTIFICATE_PASSWORD  
-# - IOS_PROVISIONING_PROFILE_BASE64
+# - IOS_CERTIFICATE_BASE64 (Distribution certificate)
+# - IOS_CERTIFICATE_PASSWORD
+# - IOS_PROVISIONING_PROFILE_BASE64 (Ad-hoc profile)
 # - KEYCHAIN_PASSWORD
 # - NPM_AUTH_TOKEN
 ```
 
-##### **B. Certificate Issues**
+##### **C. Capacitor/Pods Provisioning Errors**
+**Problem:** Pods targets don't support manual provisioning profiles
+**Solution:** The workflow now automatically configures Pods for automatic signing
+
+##### **D. Device ID Issues**
+**Problem:** `Provisioning profile doesn't include the currently selected device`
+**Solution:**
+- Use ad-hoc provisioning profile (supports any device)
+- Or add the GitHub Actions runner device ID to your profile
+- The workflow uses ad-hoc distribution to avoid this issue
+
+##### **E. Certificate Validation**
 ```bash
 # Check certificate validity (macOS only)
 security find-identity -v -p codesigning
 
-# Verify certificate is not expired
-# Ensure it's a Distribution certificate for ad-hoc builds
+# Verify certificate details:
+# 1. Not expired
+# 2. Contains "iPhone Distribution"
+# 3. Has private key (shows in Keychain Access)
+# 4. Team ID matches: 8LE2DAQG25
 ```
 
-##### **C. Provisioning Profile Issues**
+##### **F. Provisioning Profile Issues**
 - Ensure profile matches bundle ID: `com.citus.stage`
-- Verify profile is for Distribution (not Development)
+- Verify profile is for **Distribution** (not Development)
 - Check profile hasn't expired
+- Ensure profile supports **ad-hoc** distribution
+- Team ID must match: `8LE2DAQG25`
 
 ### 3. **IPA Not Generated**
 

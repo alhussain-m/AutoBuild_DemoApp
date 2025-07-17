@@ -22,6 +22,14 @@
 - Added comprehensive error handling and logging
 - Supports different Angular configurations
 
+### 4. **iOS Code Signing Errors** ❌ → ✅
+**Problem:** Capacitor/Pods provisioning profile conflicts and certificate issues
+**Solution:**
+- Automatically configure Pods targets for automatic code signing
+- Enhanced certificate validation and detection
+- Better error messages for missing certificates
+- Support for different certificate types (Distribution/Developer)
+
 ## 📁 **Files Modified/Created**
 
 ### **Modified Files:**
@@ -33,10 +41,11 @@
 1. `scripts/build-web.sh` - Robust build script with fallbacks
 2. `scripts/generate-secrets.sh` - GitHub secrets generator
 3. `scripts/validate-setup.sh` - Setup validation tool
-4. `CI_CD_SETUP.md` - Comprehensive setup guide
-5. `README_CI_CD.md` - Quick start guide
-6. `TROUBLESHOOTING.md` - Detailed troubleshooting guide
-7. `FIXES_SUMMARY.md` - This summary file
+4. `scripts/check-certificates.sh` - Certificate validation tool
+5. `CI_CD_SETUP.md` - Comprehensive setup guide
+6. `README_CI_CD.md` - Quick start guide
+7. `TROUBLESHOOTING.md` - Detailed troubleshooting guide
+8. `FIXES_SUMMARY.md` - This summary file
 
 ## 🔧 **Technical Improvements**
 
