@@ -2,7 +2,7 @@ name: iOS Build & Generate IPA
 
 on:
   push:
-    branches: [main, qa6, stage]
+    branches: [qa6]
   workflow_dispatch:
     inputs:
       environment:
@@ -310,7 +310,7 @@ jobs:
         xcodebuild -exportArchive \
           -archivePath $RUNNER_TEMP/App.xcarchive \
           -exportPath $RUNNER_TEMP/export \
-          -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
+          -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \ 
           -verbose
 
         echo "✅ IPA export completed successfully!"
