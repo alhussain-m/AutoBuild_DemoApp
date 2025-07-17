@@ -2,7 +2,7 @@ name: iOS Build & Generate IPA
 
 on:
   push:
-    branches: [qa6]
+    branches: [main, qa6, stage]
   workflow_dispatch:
     inputs:
       environment:
