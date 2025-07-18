@@ -228,6 +228,15 @@ jobs:
         echo "CERT_TYPE=$CERT_TYPE" >> $GITHUB_ENV
         echo "📝 Will use certificate type: $CERT_TYPE"
 
+        # For development certificates, we need to use automatic provisioning
+        if [[ "$CERT_TYPE" == *"Development"* ]] || [[ "$CERT_TYPE" == *"Developer"* ]]; then
+          echo "🔧 Development certificate detected - will use automatic provisioning"
+          echo "USE_AUTOMATIC_SIGNING=true" >> $GITHUB_ENV
+        else
+          echo "🔧 Distribution certificate detected - will use manual provisioning"
+          echo "USE_AUTOMATIC_SIGNING=false" >> $GITHUB_ENV
+        fi
+
         # Apply provisioning profile
         mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
         cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
@@ -290,21 +299,39 @@ jobs:
           echo "🔑 Using default signing identity: $CODE_SIGN_ID"
         fi
 
-        # Build and archive with better error handling
+        # Build and archive with appropriate signing method
         set -e
-        xcodebuild archive \
-          -workspace App.xcworkspace \
-          -scheme ${{ env.SCHEME }} \
-          -configuration Release \
-          -archivePath $RUNNER_TEMP/App.xcarchive \
-          -allowProvisioningUpdates \
-          CODE_SIGN_IDENTITY="$CODE_SIGN_ID" \
-          DEVELOPMENT_TEAM="${{ env.DEVELOPMENT_TEAM }}" \
-          PROVISIONING_PROFILE_SPECIFIER="${{ env.PROVISIONING_PROFILE }}" \
-          CODE_SIGN_STYLE=Manual \
-          ONLY_ACTIVE_ARCH=NO \
-          PRODUCT_BUNDLE_IDENTIFIER="${{ env.BUNDLE_ID }}" \
-          -quiet
+
+        if [ "$USE_AUTOMATIC_SIGNING" = "true" ]; then
+          echo "🔧 Using automatic code signing for development certificate"
+          xcodebuild archive \
+            -workspace App.xcworkspace \
+            -scheme ${{ env.SCHEME }} \
+            -configuration Release \
+            -archivePath $RUNNER_TEMP/App.xcarchive \
+            -allowProvisioningUpdates \
+            CODE_SIGN_IDENTITY="$CODE_SIGN_ID" \
+            DEVELOPMENT_TEAM="${{ env.DEVELOPMENT_TEAM }}" \
+            CODE_SIGN_STYLE=Automatic \
+            ONLY_ACTIVE_ARCH=NO \
+            PRODUCT_BUNDLE_IDENTIFIER="${{ env.BUNDLE_ID }}" \
+            -quiet
+        else
+          echo "🔧 Using manual code signing for distribution certificate"
+          xcodebuild archive \
+            -workspace App.xcworkspace \
+            -scheme ${{ env.SCHEME }} \
+            -configuration Release \
+            -archivePath $RUNNER_TEMP/App.xcarchive \
+            -allowProvisioningUpdates \
+            CODE_SIGN_IDENTITY="$CODE_SIGN_ID" \
+            DEVELOPMENT_TEAM="${{ env.DEVELOPMENT_TEAM }}" \
+            PROVISIONING_PROFILE_SPECIFIER="${{ env.PROVISIONING_PROFILE }}" \
+            CODE_SIGN_STYLE=Manual \
+            ONLY_ACTIVE_ARCH=NO \
+            PRODUCT_BUNDLE_IDENTIFIER="${{ env.BUNDLE_ID }}" \
+            -quiet
+        fi
 
         # Verify archive was created
         if [ -d "$RUNNER_TEMP/App.xcarchive" ]; then
@@ -329,8 +356,32 @@ jobs:
           echo "📱 Using ad-hoc export method (for distribution certificates)"
         fi
 
-        # Create export options plist
-        cat > $RUNNER_TEMP/ExportOptions.plist << EOF
+        # Create export options plist based on signing method
+        if [ "$USE_AUTOMATIC_SIGNING" = "true" ]; then
+          echo "📝 Creating export options for automatic signing"
+          cat > $RUNNER_TEMP/ExportOptions.plist << EOF
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+          <key>method</key>
+          <string>$EXPORT_METHOD</string>
+          <key>teamID</key>
+          <string>${{ env.DEVELOPMENT_TEAM }}</string>
+          <key>uploadBitcode</key>
+          <false/>
+          <key>uploadSymbols</key>
+          <true/>
+          <key>compileBitcode</key>
+          <false/>
+          <key>signingStyle</key>
+          <string>automatic</string>
+        </dict>
+        </plist>
+        EOF
+        else
+          echo "📝 Creating export options for manual signing"
+          cat > $RUNNER_TEMP/ExportOptions.plist << EOF
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0">
@@ -355,6 +406,7 @@ jobs:
         </dict>
         </plist>
         EOF
+        fi
 
         echo "📋 Export options:"
         cat $RUNNER_TEMP/ExportOptions.plist
