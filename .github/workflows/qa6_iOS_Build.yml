@@ -82,7 +82,7 @@ jobs:
 
     - name: Verify build output
       run: |
-        echo "✅ Checking build output..."
+        echo " Checking build output..."
         ls -la www/
         echo "📦 Web build completed successfully!"
 
