@@ -2,7 +2,8 @@ name: iOS QA6 Build
 
 on:
   push:
-    branches: [auto-build-qa6]
+    branches: [main, auto-build-qa6]
+  workflow_dispatch:
 
 env:
   NODE_VERSION: '20.x'
