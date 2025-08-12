@@ -53,7 +53,7 @@ jobs:
         run: |
           npm run build -- --configuration=qa6
           npx cap sync ios
-          cd ios
+          cd ios/App
           mkdir -p build
           xcodebuild \
             -workspace App.xcworkspace \
@@ -67,14 +67,14 @@ jobs:
 
       - name: Export IPA
         run: |
-          cd ios
+          cd ios/App
           xcodebuild -exportArchive \
             -archivePath build/App.xcarchive \
-            -exportOptionsPlist exportOptions.plist \
+            -exportOptionsPlist ../exportOptions.plist \
             -exportPath build
 
       - name: Upload IPA as artifact
         uses: actions/upload-artifact@v4
         with:
           name: ios-qa6-build
-          path: ios/build/*.ipa
+          path: ios/App/build/*.ipa
