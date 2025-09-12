@@ -1,0 +1,131 @@
+name: Mobile Auto Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to build'
+        required: true
+        type: choice
+        options:
+          - ios
+          - android
+      branch:
+        description: 'Branch to build'
+        required: true
+        default: 'main'
+      environment:
+        description: 'Environment (qa6, stage, prod, etc.)'
+        required: true
+        default: 'qa6'
+      version_code:
+        description: 'iOS version code (x.y.z.w)'
+        required: false
+        default: ''
+
+env:
+  NODE_VERSION: '20.x'
+  SCHEME: 'App'
+
+jobs:
+  build-mobile:
+    runs-on: macos-latest
+    env:
+      BUILD_ENV: ${{ github.event.inputs.environment }}
+      VERSION_SUFFIX: "-beta.${{ github.run_number }}"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm install --force
+
+      - name: Build Angular + Sync Capacitor
+        run: |
+          npm run build -- --configuration=${{ github.event.inputs.environment }}
+          npx cap sync ${{ github.event.inputs.platform }}
+
+      ### ============ Android Build ============ ###
+      - name: Build Android APK
+        if: ${{ github.event.inputs.platform == 'android' }}
+        run: |
+          cd android
+          ./gradlew assembleDebug
+
+      - name: Upload APK
+        if: ${{ github.event.inputs.platform == 'android' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-${{ github.event.inputs.environment }}
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      ### ============ iOS Build ============ ###
+      - name: Validate iOS version input
+        if: ${{ github.event.inputs.platform == 'ios' }}
+        run: |
+          VERSION=${{ github.event.inputs.version_code }}
+          if [ -z "$VERSION" ]; then
+            echo "❌ version_code is required for iOS builds"
+            exit 1
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
+            exit 1
+          fi
+
+      - name: Set iOS version in Info.plist
+        if: ${{ github.event.inputs.platform == 'ios' }}
+        run: |
+          FULL_VERSION=${{ github.event.inputs.version_code }}
+          SHORT_VERSION=$(echo $FULL_VERSION | cut -d'.' -f1,2)
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $FULL_VERSION" ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $SHORT_VERSION" ios/App/App/Info.plist
+
+      - name: Install Fastlane
+        if: ${{ github.event.inputs.platform == 'ios' }}
+        run: gem install fastlane -N
+
+      - name: Upload to TestFlight via Fastlane
+        if: ${{ github.event.inputs.platform == 'ios' }}
+        working-directory: ios/App
+        env:
+          APP_STORE_CONNECT_USER: ${{ secrets.APP_STORE_CONNECT_USER }}
+          FASTLANE_PASSWORD: ${{ secrets.FASTLANE_PASSWORD }}
+        run: |
+          fastlane pilot upload \
+            -u "$APP_STORE_CONNECT_USER" \
+            -i build/App.ipa || (
+              # If IPA not yet built, build and try again
+              echo "🔨 Building IPA before upload..."
+              xcodebuild -workspace App.xcworkspace \
+                -scheme "${{ env.SCHEME }}" \
+                -sdk iphoneos \
+                -configuration Release \
+                -archivePath build/App.xcarchive \
+                -allowProvisioningUpdates \
+                archive
+
+              xcodebuild -exportArchive \
+                -archivePath build/App.xcarchive \
+                -exportOptionsPlist exportOptions.plist \
+                -exportPath build
+
+              fastlane pilot upload \
+                -u "$APP_STORE_CONNECT_USER" \
+                -i build/App.ipa
+            )
+
+      - name: Upload IPA artifact
+        if: ${{ github.event.inputs.platform == 'ios' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-${{ github.event.inputs.environment }}
+          path: ios/App/build/*.ipa
