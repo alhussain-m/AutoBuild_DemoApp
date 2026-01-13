@@ -33,7 +33,7 @@ jobs:
       - name: Install dependencies
         run: npm install --force
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.CITUS_NPM_AUTH_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
 
       - name: Decode and install certificate
         run: |
