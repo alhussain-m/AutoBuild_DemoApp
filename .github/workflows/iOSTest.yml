@@ -75,8 +75,6 @@ jobs:
       - name: Install Ionic CLI
         run: npm install -g @ionic/cli
 
-      - name: Copy custom-configs.ts
-        run: cp src/config/custom-configs.example.ts src/config/custom-configs.ts
 
       - name: Copy Branded Assets
         if: github.event.inputs.brand != 'citushealth'
