@@ -1,0 +1,209 @@
+name: iOS Mobile Build
+run-name: iOS Build - ${{ github.event.inputs.brand }} - ${{ github.event.inputs.environment }} @ ${{ github.event.inputs.branch }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch name of mobile repo to build'
+        required: true
+        type: string
+        default: 'qa-release-even'
+      brand:
+        description: 'Brand/App to build'
+        required: true
+        type: choice
+        options:
+          - ameripharma
+          - avevorx
+          - ca
+          - citushealth
+          - intermountain
+          - kabafusion
+          - kennebecpharmacy
+          - matrixcare
+          - medrx
+          - myInhouseconnect
+          - myanovo
+          - nutrishare
+          - orsinipharmacy
+          - premierinfusion
+          - realocares
+          - rxconnect
+          - soleoconnect
+          - trustport
+          - virtisconnect
+          - vitalcare
+        default: 'citushealth'
+      environment:
+        description: 'Environment (e.g., qa6, qa7, production, stage, ca, kabafusion)'
+        required: true
+        type: string
+        default: 'qa6'
+      upload_to_testflight:
+        description: 'Upload to TestFlight after build'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    env:
+      BUILD_ENV: ${{ github.event.inputs.environment }}
+      VERSION_SUFFIX: "-beta.${{ github.run_number }}"
+      BRAND: ${{ github.event.inputs.brand }}
+
+    steps:
+      - name: Checkout Mobile Repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18.x
+          scope: '@resmed'
+          registry-url: 'https://npm.pkg.github.com'
+
+      - name: Install dependencies
+        run: npm install --force
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CITUS_NPM_AUTH_TOKEN }}
+
+      - name: Install Ionic CLI
+        run: npm install -g @ionic/cli
+
+      - name: Copy custom-configs.ts
+        run: cp src/config/custom-configs.example.ts src/config/custom-configs.ts
+
+      - name: Copy Branded Assets
+        if: github.event.inputs.brand != 'citushealth'
+        run: |
+          echo "Copying branded assets for: ${{ github.event.inputs.brand }}"
+          export org=${{ github.event.inputs.brand }}
+          bash brand.sh
+          echo "Branded assets copied successfully"
+      
+      - name: Build iOS Web Assets
+        run: |
+          npm run build -- --configuration=${{ github.event.inputs.environment }}
+          npx cap sync ios
+
+      - name: Install CocoaPods
+        run: |
+          cd ios/App
+          pod install
+
+      - name: Setup Code Signing
+        env:
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          IOS_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+        run: |
+          # Create keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          
+          # Import certificate
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          echo -n "$IOS_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+          security import $CERTIFICATE_PATH -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+          
+          # Import provisioning profile
+          PROVISION_PATH=$RUNNER_TEMP/build_pp.mobileprovision
+          echo -n "$IOS_PROVISION_PROFILE_BASE64" | base64 --decode -o $PROVISION_PATH
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PROVISION_PATH ~/Library/MobileDevice/Provisioning\ Profiles/
+
+      - name: Build iOS App
+        run: |
+          cd ios/App
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -archivePath $RUNNER_TEMP/App.xcarchive \
+            archive
+
+      - name: Export IPA
+        run: |
+          # Create export options plist
+          cat > $RUNNER_TEMP/ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>8LE2DAQG25</string>
+            <key>uploadBitcode</key>
+            <false/>
+            <key>compileBitcode</key>
+            <false/>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>signingStyle</key>
+            <string>manual</string>
+          </dict>
+          </plist>
+          EOF
+
+          # Export archive to IPA
+          xcodebuild -exportArchive \
+            -archivePath $RUNNER_TEMP/App.xcarchive \
+            -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
+            -exportPath $RUNNER_TEMP/export
+
+      - name: Generate IPA name
+        id: vars
+        run: |
+          COMMIT_HASH=$(echo $GITHUB_SHA | cut -c1-7)
+          DATE=$(date +'%m%d_%H%M')
+          IPA_NAME="${{ github.event.inputs.brand }}-${{ github.event.inputs.environment }}_${DATE}_${COMMIT_HASH}"
+          echo "ipa_name=$IPA_NAME" >> $GITHUB_OUTPUT
+
+      - name: Rename IPA and prepare artifact folder
+        run: |
+          mkdir -p $RUNNER_TEMP/artifact
+          cp $RUNNER_TEMP/export/App.ipa $RUNNER_TEMP/artifact/${{ steps.vars.outputs.ipa_name }}.ipa
+
+      - name: Upload IPA as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.vars.outputs.ipa_name }}
+          path: $RUNNER_TEMP/artifact/${{ steps.vars.outputs.ipa_name }}.ipa
+
+      - name: Upload to TestFlight
+        if: github.event.inputs.upload_to_testflight == true
+        env:
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          # Create App Store Connect API key
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo -n "$APP_STORE_CONNECT_API_KEY" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8
+
+          # Upload to TestFlight
+          xcrun altool --upload-app \
+            --type ios \
+            --file $RUNNER_TEMP/artifact/${{ steps.vars.outputs.ipa_name }}.ipa \
+            --apiKey $APP_STORE_CONNECT_KEY_ID \
+            --apiIssuer $APP_STORE_CONNECT_ISSUER_ID
+
+          echo "✅ IPA uploaded to TestFlight successfully!"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Clean up keychain and certificates
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+          rm -rf $RUNNER_TEMP/build_certificate.p12 || true
+          rm -rf $RUNNER_TEMP/build_pp.mobileprovision || true
+          rm -rf ~/.appstoreconnect/private_keys/* || true
