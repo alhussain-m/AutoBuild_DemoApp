@@ -74,15 +74,6 @@ jobs:
 
       - name: Install Ionic CLI
         run: npm install -g @ionic/cli
-
-
-      - name: Copy Branded Assets
-        if: github.event.inputs.brand != 'citushealth'
-        run: |
-          echo "Copying branded assets for: ${{ github.event.inputs.brand }}"
-          export org=${{ github.event.inputs.brand }}
-          bash brand.sh
-          echo "Branded assets copied successfully"
       
       - name: Build iOS Web Assets
         run: |
