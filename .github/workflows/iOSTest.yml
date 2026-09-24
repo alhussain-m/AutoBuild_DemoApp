@@ -78,6 +78,14 @@ jobs:
       - name: Build iOS Web Assets
         run: |
           npm run build -- --configuration=${{ github.event.inputs.environment }}
+
+          if [ ! -d "ios" ]; then
+            echo "iOS platform not found. Adding iOS platform..."
+            npx cap add ios
+          else
+            echo "iOS platform already exists."
+          fi
+
           npx cap sync ios
 
       - name: Install CocoaPods
