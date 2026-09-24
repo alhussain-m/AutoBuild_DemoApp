@@ -8,7 +8,7 @@ on:
         description: 'Branch name of mobile repo to build'
         required: true
         type: string
-        default: 'test1'
+        default: 'qa6'
       brand:
         description: 'Brand/App to build'
         required: true
@@ -39,7 +39,7 @@ on:
         description: 'Environment (e.g., qa6, qa7, production, stage, ca, kabafusion)'
         required: true
         type: string
-        default: 'test1'
+        default: 'qa6'
       upload_to_testflight:
         description: 'Upload to TestFlight after build'
         required: false
