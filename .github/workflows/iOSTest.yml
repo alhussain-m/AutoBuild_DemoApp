@@ -94,31 +94,31 @@ jobs:
           pod install
 
       - name: Decode and install certificate
-          run: |
-            echo "${{ secrets.IOS_CERTIFICATE_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/build_certificate.p12"
+        run: |
+          echo "${{ secrets.IOS_CERTIFICATE_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/build_certificate.p12"
 
-            security create-keychain -p "" "$RUNNER_TEMP/app-signing.keychain-db"
-            security set-keychain-settings "$RUNNER_TEMP/app-signing.keychain-db"
+          security create-keychain -p "" "$RUNNER_TEMP/app-signing.keychain-db"
+          security set-keychain-settings "$RUNNER_TEMP/app-signing.keychain-db"
 
-            security import "$RUNNER_TEMP/build_certificate.p12" \
-            -k "$RUNNER_TEMP/app-signing.keychain-db" \
-            -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" \
-            -A
+          security import "$RUNNER_TEMP/build_certificate.p12" \
+          -k "$RUNNER_TEMP/app-signing.keychain-db" \
+          -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" \
+          -A
 
-            security list-keychains -d user -s "$RUNNER_TEMP/app-signing.keychain-db"
-            security default-keychain -s "$RUNNER_TEMP/app-signing.keychain-db"
-            security unlock-keychain \
-            -p "" \
-            "$RUNNER_TEMP/app-signing.keychain-db"
+          security list-keychains -d user -s "$RUNNER_TEMP/app-signing.keychain-db"
+          security default-keychain -s "$RUNNER_TEMP/app-signing.keychain-db"
+          security unlock-keychain \
+          -p "" \
+          "$RUNNER_TEMP/app-signing.keychain-db"
 
-            security set-key-partition-list \
-            -S apple-tool:,apple: \
-            -s \
-            -k "" \
-            "$RUNNER_TEMP/app-signing.keychain-db"
+          security set-key-partition-list \
+          -S apple-tool:,apple: \
+          -s \
+          -k "" \
+          "$RUNNER_TEMP/app-signing.keychain-db"
 
-            echo "Installed signing identities:"
-            security find-identity -v -p codesigning "$RUNNER_TEMP/app-signing.keychain-db"
+          echo "Installed signing identities:"
+          security find-identity -v -p codesigning "$RUNNER_TEMP/app-signing.keychain-db"
 
       - name: Decode and install provisioning profile
         run: |
