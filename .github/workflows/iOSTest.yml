@@ -135,37 +135,53 @@ jobs:
 
             PROVISION_PATH="$RUNNER_TEMP/build_pp.mobileprovision"
 
-            echo -n "$IOS_PROVISION_PROFILE_BASE64" | base64 --decode > "$PROVISION_PATH"
+            printf '%s' "$IOS_PROVISION_PROFILE_BASE64" |
+            tr -d '[:space:]' |
+            base64 --decode > "$PROVISION_PATH"
 
-            PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
-            mkdir -p "$PROFILE_DIR"
+            echo "Provisioning profile size:"
+            wc -c "$PROVISION_PATH"
 
-            # Extract profile information
-            security cms -D -i "$PROVISION_PATH" > "$RUNNER_TEMP/profile.plist"
+            echo "Provisioning profile type:"
+            file "$PROVISION_PATH"
+
+            echo "== Decoding provisioning profile =="
+
+            security cms \
+            -D \
+            -i "$PROVISION_PATH" \
+            -o "$RUNNER_TEMP/profile.plist"
+
+            echo "== Reading provisioning profile =="
 
             PROFILE_NAME=$(
-                /usr/libexec/PlistBuddy \
-                -c "Print :Name" \
-                "$RUNNER_TEMP/profile.plist"
+            /usr/libexec/PlistBuddy \
+            -c "Print :Name" \
+            "$RUNNER_TEMP/profile.plist"
             )
 
           PROFILE_UUID=$(
-              /usr/libexec/PlistBuddy \
-              -c "Print :UUID" \
-              "$RUNNER_TEMP/profile.plist"
-          )
+            /usr/libexec/PlistBuddy \
+            -c "Print :UUID" \
+            "$RUNNER_TEMP/profile.plist"
+            )
 
           PROFILE_TEAM=$(
-              /usr/libexec/PlistBuddy \
-              -c "Print :TeamIdentifier:0" \
-              "$RUNNER_TEMP/profile.plist"
-          )
+            /usr/libexec/PlistBuddy \
+            -c "Print :TeamIdentifier:0" \
+            "$RUNNER_TEMP/profile.plist"
+            )
 
           APPLICATION_IDENTIFIER=$(
-            /usr/libexec/PlistBuddy \
-            -c "Print :Entitlements:application-identifier" \
-            "$RUNNER_TEMP/profile.plist"
+          /usr/libexec/PlistBuddy \
+          -c "Print :Entitlements:application-identifier" \
+          "$RUNNER_TEMP/profile.plist"
           )
+
+          echo "Profile Name: $PROFILE_NAME"
+          echo "Profile UUID: $PROFILE_UUID"
+          echo "Profile Team: $PROFILE_TEAM"
+          echo "Application Identifier: $APPLICATION_IDENTIFIER"
 
           echo "Profile Name: $PROFILE_NAME"
           echo "Profile UUID: $PROFILE_UUID"
