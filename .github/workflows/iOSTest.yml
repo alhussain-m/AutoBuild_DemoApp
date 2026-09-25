@@ -1,4 +1,5 @@
 name: iOS Mobile Build
+
 run-name: iOS Build - ${{ github.event.inputs.brand }} - ${{ github.event.inputs.environment }} @ ${{ github.event.inputs.branch }}
 
 on:
@@ -9,6 +10,7 @@ on:
         required: true
         type: string
         default: 'qa6'
+
       brand:
         description: 'Brand/App to build'
         required: true
@@ -35,30 +37,45 @@ on:
           - virtisconnect
           - vitalcare
         default: 'citushealth'
+
       environment:
         description: 'Environment (e.g., qa6, qa7, production, stage, ca, kabafusion)'
         required: true
         type: string
         default: 'qa6'
+
       upload_to_testflight:
         description: 'Upload to TestFlight after build'
         required: false
         type: boolean
         default: false
 
+
 jobs:
+
   build-ios:
     runs-on: macos-latest
+
     env:
       BUILD_ENV: ${{ github.event.inputs.environment }}
       VERSION_SUFFIX: "-beta.${{ github.run_number }}"
       BRAND: ${{ github.event.inputs.brand }}
 
     steps:
+
+      # ---------------------------------------------------------
+      # CHECKOUT
+      # ---------------------------------------------------------
+
       - name: Checkout Mobile Repo
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch }}
+
+
+      # ---------------------------------------------------------
+      # NODE
+      # ---------------------------------------------------------
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -67,16 +84,32 @@ jobs:
           scope: '@resmed'
           registry-url: 'https://npm.pkg.github.com'
 
+
+      # ---------------------------------------------------------
+      # NPM
+      # ---------------------------------------------------------
+
       - name: Install dependencies
         run: npm install --force
         env:
           NODE_AUTH_TOKEN: ${{ secrets.CITUS_NPM_AUTH_TOKEN }}
 
+
+      # ---------------------------------------------------------
+      # IONIC
+      # ---------------------------------------------------------
+
       - name: Install Ionic CLI
         run: npm install -g @ionic/cli
-      
+
+
+      # ---------------------------------------------------------
+      # BUILD WEB + CAPACITOR IOS
+      # ---------------------------------------------------------
+
       - name: Build iOS Web Assets
         run: |
+
           npm run build -- --configuration=${{ github.event.inputs.environment }}
 
           if [ ! -d "ios" ]; then
@@ -88,120 +121,428 @@ jobs:
 
           npx cap sync ios
 
+
+      # ---------------------------------------------------------
+      # COCOAPODS
+      # ---------------------------------------------------------
+
       - name: Install CocoaPods
         run: |
           cd ios/App
           pod install
 
+
+      # ---------------------------------------------------------
+      # CERTIFICATE
+      # ---------------------------------------------------------
+
       - name: Decode and install certificate
         run: |
-          echo "${{ secrets.IOS_CERTIFICATE_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/build_certificate.p12"
 
-          security create-keychain -p "" "$RUNNER_TEMP/app-signing.keychain-db"
-          security set-keychain-settings "$RUNNER_TEMP/app-signing.keychain-db"
+          echo "${{ secrets.IOS_CERTIFICATE_BASE64 }}" | \
+            base64 --decode > "$RUNNER_TEMP/build_certificate.p12"
 
-          security import "$RUNNER_TEMP/build_certificate.p12" \
-          -k "$RUNNER_TEMP/app-signing.keychain-db" \
-          -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" \
-          -A
+          echo "Creating temporary signing keychain..."
 
-          security list-keychains -d user -s "$RUNNER_TEMP/app-signing.keychain-db"
-          security default-keychain -s "$RUNNER_TEMP/app-signing.keychain-db"
+          security create-keychain \
+            -p "" \
+            "$RUNNER_TEMP/app-signing.keychain-db"
+
+          security set-keychain-settings \
+            "$RUNNER_TEMP/app-signing.keychain-db"
+
+          security import \
+            "$RUNNER_TEMP/build_certificate.p12" \
+            -k "$RUNNER_TEMP/app-signing.keychain-db" \
+            -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" \
+            -A
+
+          security list-keychains \
+            -d user \
+            -s "$RUNNER_TEMP/app-signing.keychain-db"
+
+          security default-keychain \
+            -s "$RUNNER_TEMP/app-signing.keychain-db"
+
           security unlock-keychain \
-          -p "" \
-          "$RUNNER_TEMP/app-signing.keychain-db"
+            -p "" \
+            "$RUNNER_TEMP/app-signing.keychain-db"
 
           security set-key-partition-list \
-          -S apple-tool:,apple: \
-          -s \
-          -k "" \
-          "$RUNNER_TEMP/app-signing.keychain-db"
+            -S apple-tool:,apple: \
+            -s \
+            -k "" \
+            "$RUNNER_TEMP/app-signing.keychain-db"
 
-          echo "Installed signing identities:"
-          security find-identity -v -p codesigning "$RUNNER_TEMP/app-signing.keychain-db"
+          echo ""
+          echo "======================================"
+          echo "Installed signing identities"
+          echo "======================================"
+
+          security find-identity \
+            -v \
+            -p codesigning \
+            "$RUNNER_TEMP/app-signing.keychain-db"
+
+
+      # ---------------------------------------------------------
+      # PROVISIONING PROFILE
+      # ---------------------------------------------------------
 
       - name: Decode and install provisioning profile
         run: |
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+
+          mkdir -p \
+            "$HOME/Library/MobileDevice/Provisioning Profiles"
 
           echo "${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}" | \
-          base64 --decode > "$RUNNER_TEMP/build_pp.mobileprovision"
+            base64 --decode > "$RUNNER_TEMP/build_pp.mobileprovision"
 
-          # Extract provisioning profile information
-          security cms -D -i "$RUNNER_TEMP/build_pp.mobileprovision" \
-          > "$RUNNER_TEMP/profile.plist"
+          echo ""
+          echo "======================================"
+          echo "Provisioning Profile File"
+          echo "======================================"
 
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy \
-          -c "Print UUID" \
-          "$RUNNER_TEMP/profile.plist")
+          ls -lh "$RUNNER_TEMP/build_pp.mobileprovision"
 
-          PROFILE_NAME=$(/usr/libexec/PlistBuddy \
-          -c "Print Name" \
-          "$RUNNER_TEMP/profile.plist")
+          file "$RUNNER_TEMP/build_pp.mobileprovision"
 
-          PROFILE_TEAM_ID=$(/usr/libexec/PlistBuddy \
-          -c "Print TeamIdentifier:0" \
-          "$RUNNER_TEMP/profile.plist")
+          echo ""
+          echo "Decoding provisioning profile..."
 
-          BUNDLE_ID=$(/usr/libexec/PlistBuddy \
-          -c "Print Entitlements:application-identifier" \
-          "$RUNNER_TEMP/profile.plist")
+          security cms \
+            -D \
+            -i "$RUNNER_TEMP/build_pp.mobileprovision" \
+            > "$RUNNER_TEMP/profile.plist"
 
-          echo "Provisioning Profile UUID: $PROFILE_UUID"
-          echo "Provisioning Profile Name: $PROFILE_NAME"
-          echo "Provisioning Team ID: $PROFILE_TEAM_ID"
-          echo "Application Identifier: $BUNDLE_ID"
+          echo "Provisioning profile decoded successfully."
 
-          cp "$RUNNER_TEMP/build_pp.mobileprovision" \
-          "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
+          # -----------------------------------------------------
+          # READ PROFILE INFORMATION
+          # -----------------------------------------------------
+
+          PROFILE_UUID=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print UUID" \
+              "$RUNNER_TEMP/profile.plist"
+          )
+
+          PROFILE_NAME=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print Name" \
+              "$RUNNER_TEMP/profile.plist"
+          )
+
+          PROFILE_TEAM_ID=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print TeamIdentifier:0" \
+              "$RUNNER_TEMP/profile.plist"
+          )
+
+          APPLICATION_IDENTIFIER=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print Entitlements:application-identifier" \
+              "$RUNNER_TEMP/profile.plist"
+          )
+
+          PROFILE_BUNDLE_ID="${APPLICATION_IDENTIFIER#*.}"
+
+
+          # -----------------------------------------------------
+          # EXPECTED VALUES
+          # -----------------------------------------------------
+
+          EXPECTED_BUNDLE_ID="com.citus.citusTest"
+
+
+          echo ""
+          echo "======================================"
+          echo "Provisioning Profile Information"
+          echo "======================================"
+
+          echo "Profile UUID: $PROFILE_UUID"
+          echo "Profile Name: $PROFILE_NAME"
+          echo "Team ID: $PROFILE_TEAM_ID"
+          echo "Application Identifier: $APPLICATION_IDENTIFIER"
+          echo "Profile Bundle ID: $PROFILE_BUNDLE_ID"
+          echo "Expected Bundle ID: $EXPECTED_BUNDLE_ID"
+
+
+          # -----------------------------------------------------
+          # VALIDATE TEAM
+          # -----------------------------------------------------
+
+          if [ "$PROFILE_TEAM_ID" != "ULEB59EAC4" ]; then
+            echo ""
+            echo "ERROR: Provisioning profile belongs to unexpected Team ID."
+            echo "Expected: ULEB59EAC4"
+            echo "Actual:   $PROFILE_TEAM_ID"
+            exit 1
+          fi
+
+
+          # -----------------------------------------------------
+          # VALIDATE BUNDLE ID
+          # -----------------------------------------------------
+
+          if [ "$PROFILE_BUNDLE_ID" != "$EXPECTED_BUNDLE_ID" ]; then
+            echo ""
+            echo "ERROR: Provisioning profile Bundle ID does not match app Bundle ID."
+            echo ""
+            echo "Expected:"
+            echo "$EXPECTED_BUNDLE_ID"
+            echo ""
+            echo "Profile contains:"
+            echo "$PROFILE_BUNDLE_ID"
+            echo ""
+            echo "Create/download a new provisioning profile for:"
+            echo "$EXPECTED_BUNDLE_ID"
+
+            exit 1
+          fi
+
+
+          # -----------------------------------------------------
+          # INSTALL PROFILE
+          # -----------------------------------------------------
+
+          cp \
+            "$RUNNER_TEMP/build_pp.mobileprovision" \
+            "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
+
+          # -----------------------------------------------------
+          # EXPORT VARIABLES
+          # -----------------------------------------------------
 
           echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
           echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
           echo "PROFILE_TEAM_ID=$PROFILE_TEAM_ID" >> "$GITHUB_ENV"
+          echo "BUNDLE_ID=$PROFILE_BUNDLE_ID" >> "$GITHUB_ENV"
+
+          echo ""
+          echo "Provisioning profile installed successfully."
+
+
+      # ---------------------------------------------------------
+      # VERIFY SIGNING
+      # ---------------------------------------------------------
 
       - name: Verify iOS signing configuration
         run: |
-          echo "======================================"
-          echo "Signing configuration"
-          echo "======================================"
-
-          echo "Team ID: $PROFILE_TEAM_ID"
-          echo "Profile UUID: $PROFILE_UUID"
-          echo "Profile Name: $PROFILE_NAME"
 
           echo ""
-          echo "Installed signing identities:"
-          security find-identity -v -p codesigning \
+          echo "======================================"
+          echo "iOS SIGNING CONFIGURATION"
+          echo "======================================"
+
+          echo "Bundle ID:       $BUNDLE_ID"
+          echo "Team ID:         $PROFILE_TEAM_ID"
+          echo "Profile UUID:    $PROFILE_UUID"
+          echo "Profile Name:    $PROFILE_NAME"
+
+          echo ""
+          echo "======================================"
+          echo "SIGNING IDENTITIES"
+          echo "======================================"
+
+          security find-identity \
+            -v \
+            -p codesigning \
             "$RUNNER_TEMP/app-signing.keychain-db"
 
           echo ""
-          echo "Installed provisioning profiles:"
-          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
-    
-      - name: Build iOS App
+          echo "======================================"
+          echo "PROVISIONING PROFILES"
+          echo "======================================"
+
+          ls -la \
+            "$HOME/Library/MobileDevice/Provisioning Profiles"
+
+
+      # ---------------------------------------------------------
+      # CONFIGURE APP TARGET
+      #
+      # IMPORTANT:
+      # Signing settings are applied ONLY to the App target.
+      # They are NOT passed globally to xcodebuild.
+      # ---------------------------------------------------------
+
+      - name: Configure App Target Signing
         run: |
+
           cd ios/App
 
+          echo ""
+          echo "======================================"
+          echo "Configuring App target"
+          echo "======================================"
+
+          ruby <<'RUBY'
+
+          require 'xcodeproj'
+
+          project_path = 'App.xcodeproj'
+
+          project = Xcodeproj::Project.open(project_path)
+
+          app_target = project.targets.find do |target|
+            target.name == 'App'
+          end
+
+          if app_target.nil?
+            abort "ERROR: App target was not found."
+          end
+
+          bundle_id = ENV['BUNDLE_ID']
+          team_id = ENV['PROFILE_TEAM_ID']
+          profile_name = ENV['PROFILE_NAME']
+
+          puts "App Target: #{app_target.name}"
+          puts "Bundle ID: #{bundle_id}"
+          puts "Team ID: #{team_id}"
+          puts "Profile: #{profile_name}"
+
+          app_target.build_configurations.each do |config|
+
+            puts "Updating configuration: #{config.name}"
+
+            settings = config.build_settings
+
+            settings['PRODUCT_BUNDLE_IDENTIFIER'] = bundle_id
+            settings['DEVELOPMENT_TEAM'] = team_id
+            settings['CODE_SIGN_STYLE'] = 'Manual'
+            settings['CODE_SIGN_IDENTITY'] = 'Apple Distribution'
+            settings['PROVISIONING_PROFILE_SPECIFIER'] = profile_name
+
+          end
+
+          project.save
+
+          puts "App target signing configuration updated successfully."
+
+          RUBY
+
+
+      # ---------------------------------------------------------
+      # DISABLE SIGNING FOR PODS
+      #
+      # Pods must NOT receive the application provisioning profile.
+      # ---------------------------------------------------------
+
+      - name: Configure CocoaPods Signing
+        run: |
+
+          cd ios/App
+
+          ruby <<'RUBY'
+
+          require 'xcodeproj'
+
+          pods_project_path = 'Pods/Pods.xcodeproj'
+
+          unless File.exist?(pods_project_path)
+            abort "ERROR: Pods.xcodeproj not found."
+          end
+
+          project = Xcodeproj::Project.open(pods_project_path)
+
+          project.targets.each do |target|
+
+            puts "Configuring Pods target: #{target.name}"
+
+            target.build_configurations.each do |config|
+
+              settings = config.build_settings
+
+              settings['CODE_SIGNING_ALLOWED'] = 'NO'
+              settings['CODE_SIGNING_REQUIRED'] = 'NO'
+              settings['CODE_SIGN_STYLE'] = 'Automatic'
+              settings['CODE_SIGN_IDENTITY'] = ''
+              settings['PROVISIONING_PROFILE_SPECIFIER'] = ''
+              settings['DEVELOPMENT_TEAM'] = ''
+
+            end
+
+          end
+
+          project.save
+
+          puts "CocoaPods signing disabled successfully."
+
+          RUBY
+
+
+      # ---------------------------------------------------------
+      # VERIFY XCODE SETTINGS
+      # ---------------------------------------------------------
+
+      - name: Verify Xcode Build Settings
+        run: |
+
+          cd ios/App
+
+          echo ""
+          echo "======================================"
+          echo "APP TARGET BUILD SETTINGS"
+          echo "======================================"
+
           xcodebuild \
-          -workspace App.xcworkspace \
-          -scheme App \
-          -configuration Release \
-          -archivePath "$RUNNER_TEMP/App.xcarchive" \
-          -destination "generic/platform=iOS" \
-          CODE_SIGN_STYLE=Manual \
-          DEVELOPMENT_TEAM="$PROFILE_TEAM_ID" \
-          PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
-          CODE_SIGN_IDENTITY="Apple Distribution" \
-          archive
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -showBuildSettings \
+            | grep -E \
+              "PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER" \
+            || true
+
+
+      # ---------------------------------------------------------
+      # ARCHIVE
+      #
+      # DO NOT pass signing settings here globally.
+      # App target already contains signing settings.
+      # Pods have signing disabled.
+      # ---------------------------------------------------------
+
+      - name: Build iOS App
+        run: |
+
+          cd ios/App
+
+          echo ""
+          echo "======================================"
+          echo "ARCHIVING IOS APP"
+          echo "======================================"
+
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            archive
+
+
+      # ---------------------------------------------------------
+      # EXPORT IPA
+      # ---------------------------------------------------------
 
       - name: Export IPA
         run: |
-          # Create export options plist
-          cat > $RUNNER_TEMP/ExportOptions.plist <<EOF
+
+          echo ""
+          echo "======================================"
+          echo "CREATING EXPORT OPTIONS"
+          echo "======================================"
+
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
+
             <key>method</key>
             <string>app-store</string>
 
@@ -211,9 +552,12 @@ jobs:
             <key>signingStyle</key>
             <string>manual</string>
 
+            <key>signingCertificate</key>
+            <string>Apple Distribution</string>
+
             <key>provisioningProfiles</key>
             <dict>
-              <key>YOUR_BUNDLE_IDENTIFIER</key>
+              <key>$BUNDLE_ID</key>
               <string>$PROFILE_NAME</string>
             </dict>
 
@@ -222,60 +566,144 @@ jobs:
 
             <key>compileBitcode</key>
             <false/>
+
           </dict>
           </plist>
           EOF
 
-          # Export archive to IPA
-          xcodebuild -exportArchive \
-            -archivePath $RUNNER_TEMP/App.xcarchive \
-            -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
-            -exportPath $RUNNER_TEMP/export
+
+          echo ""
+          echo "======================================"
+          echo "EXPORT OPTIONS"
+          echo "======================================"
+
+          cat "$RUNNER_TEMP/ExportOptions.plist"
+
+
+          echo ""
+          echo "======================================"
+          echo "EXPORTING IPA"
+          echo "======================================"
+
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export"
+
+
+      # ---------------------------------------------------------
+      # GENERATE IPA NAME
+      # ---------------------------------------------------------
 
       - name: Generate IPA name
         id: vars
         run: |
-          COMMIT_HASH=$(echo $GITHUB_SHA | cut -c1-7)
+
+          COMMIT_HASH=$(echo "$GITHUB_SHA" | cut -c1-7)
           DATE=$(date +'%m%d_%H%M')
+
           IPA_NAME="${{ github.event.inputs.brand }}-${{ github.event.inputs.environment }}_${DATE}_${COMMIT_HASH}"
-          echo "ipa_name=$IPA_NAME" >> $GITHUB_OUTPUT
+
+          echo "ipa_name=$IPA_NAME" >> "$GITHUB_OUTPUT"
+
+          echo "IPA name: $IPA_NAME"
+
+
+      # ---------------------------------------------------------
+      # PREPARE ARTIFACT
+      # ---------------------------------------------------------
 
       - name: Rename IPA and prepare artifact folder
         run: |
-          mkdir -p $RUNNER_TEMP/artifact
-          cp $RUNNER_TEMP/export/App.ipa $RUNNER_TEMP/artifact/${{ steps.vars.outputs.ipa_name }}.ipa
+
+          mkdir -p "$RUNNER_TEMP/artifact"
+
+          cp \
+            "$RUNNER_TEMP/export/App.ipa" \
+            "$RUNNER_TEMP/artifact/${{ steps.vars.outputs.ipa_name }}.ipa"
+
+
+      # ---------------------------------------------------------
+      # UPLOAD ARTIFACT
+      # ---------------------------------------------------------
 
       - name: Upload IPA as artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.vars.outputs.ipa_name }}
-          path: $RUNNER_TEMP/artifact/${{ steps.vars.outputs.ipa_name }}.ipa
+          path: ${{ runner.temp }}/artifact/${{ steps.vars.outputs.ipa_name }}.ipa
+
+
+      # ---------------------------------------------------------
+      # TESTFLIGHT
+      # ---------------------------------------------------------
 
       - name: Upload to TestFlight
-        if: github.event.inputs.upload_to_testflight == true
+        if: ${{ github.event.inputs.upload_to_testflight == 'true' }}
         env:
           APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+
         run: |
-          # Create App Store Connect API key
+
+          echo ""
+          echo "======================================"
+          echo "PREPARING APP STORE CONNECT API KEY"
+          echo "======================================"
+
           mkdir -p ~/.appstoreconnect/private_keys
-          echo -n "$APP_STORE_CONNECT_API_KEY" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8
 
-          # Upload to TestFlight
-          xcrun altool --upload-app \
+          echo -n "$APP_STORE_CONNECT_API_KEY" | \
+            base64 --decode \
+            > ~/.appstoreconnect/private_keys/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8
+
+
+          echo ""
+          echo "======================================"
+          echo "UPLOADING TO TESTFLIGHT"
+          echo "======================================"
+
+          xcrun altool \
+            --upload-app \
             --type ios \
-            --file $RUNNER_TEMP/artifact/${{ steps.vars.outputs.ipa_name }}.ipa \
-            --apiKey $APP_STORE_CONNECT_KEY_ID \
-            --apiIssuer $APP_STORE_CONNECT_ISSUER_ID
+            --file "$RUNNER_TEMP/artifact/${{ steps.vars.outputs.ipa_name }}.ipa" \
+            --apiKey "$APP_STORE_CONNECT_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
 
-          echo "✅ IPA uploaded to TestFlight successfully!"
+          echo ""
+          echo "======================================"
+          echo "TESTFLIGHT UPLOAD COMPLETE"
+          echo "======================================"
+
+
+      # ---------------------------------------------------------
+      # CLEANUP
+      # ---------------------------------------------------------
 
       - name: Cleanup
         if: always()
         run: |
-          # Clean up keychain and certificates
-          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
-          rm -rf $RUNNER_TEMP/build_certificate.p12 || true
-          rm -rf $RUNNER_TEMP/build_pp.mobileprovision || true
-          rm -rf ~/.appstoreconnect/private_keys/* || true
+
+          echo "Cleaning up signing files..."
+
+          security delete-keychain \
+            "$RUNNER_TEMP/app-signing.keychain-db" \
+            || true
+
+          rm -f \
+            "$RUNNER_TEMP/build_certificate.p12" \
+            || true
+
+          rm -f \
+            "$RUNNER_TEMP/build_pp.mobileprovision" \
+            || true
+
+          rm -f \
+            "$RUNNER_TEMP/profile.plist" \
+            || true
+
+          rm -rf \
+            ~/.appstoreconnect/private_keys/* \
+            || true
