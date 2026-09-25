@@ -153,7 +153,7 @@ jobs:
             citushealth)
 
               BUNDLE_ID="${{ vars.CITUSHEALTH_BUNDLE_ID }}"
-              PROVISION_PROFILE="${{ secrets.CITUSHEALTH_PROVISION_PROFILE_BASE64 }}"
+              PROVISION_PROFILE="${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}"
 
               ;;
 
