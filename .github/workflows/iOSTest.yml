@@ -124,7 +124,7 @@ jobs:
         run: |
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
 
-          echo "${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}" | \
+          echo "${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}" | \
           base64 --decode > "$RUNNER_TEMP/build_pp.mobileprovision"
 
           # Extract provisioning profile information
