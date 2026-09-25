@@ -94,26 +94,104 @@ jobs:
           pod install
 
       - name: Decode and install certificate
-        run: |
-          echo "${{ secrets.IOS_CERTIFICATE_BASE64 }}" | base64 --decode > 13-6cert.p12
-          security create-keychain -p "" build.keychain
-          security import 13-6cert.p12 -k build.keychain -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" -A
-          security list-keychains -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+          run: |
+            echo "${{ secrets.IOS_CERTIFICATE_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/build_certificate.p12"
+
+            security create-keychain -p "" "$RUNNER_TEMP/app-signing.keychain-db"
+            security set-keychain-settings "$RUNNER_TEMP/app-signing.keychain-db"
+
+            security import "$RUNNER_TEMP/build_certificate.p12" \
+            -k "$RUNNER_TEMP/app-signing.keychain-db" \
+            -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" \
+            -A
+
+            security list-keychains -d user -s "$RUNNER_TEMP/app-signing.keychain-db"
+            security default-keychain -s "$RUNNER_TEMP/app-signing.keychain-db"
+            security unlock-keychain \
+            -p "" \
+            "$RUNNER_TEMP/app-signing.keychain-db"
+
+            security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "" \
+            "$RUNNER_TEMP/app-signing.keychain-db"
+
+            echo "Installed signing identities:"
+            security find-identity -v -p codesigning "$RUNNER_TEMP/app-signing.keychain-db"
 
       - name: Decode and install provisioning profile
         run: |
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo "${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
 
-      - name: Build iOS App
+          echo "${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}" | \
+          base64 --decode > "$RUNNER_TEMP/build_pp.mobileprovision"
+
+          # Extract provisioning profile information
+          security cms -D -i "$RUNNER_TEMP/build_pp.mobileprovision" \
+          > "$RUNNER_TEMP/profile.plist"
+
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy \
+          -c "Print UUID" \
+          "$RUNNER_TEMP/profile.plist")
+
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy \
+          -c "Print Name" \
+          "$RUNNER_TEMP/profile.plist")
+
+          PROFILE_TEAM_ID=$(/usr/libexec/PlistBuddy \
+          -c "Print TeamIdentifier:0" \
+          "$RUNNER_TEMP/profile.plist")
+
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy \
+          -c "Print Entitlements:application-identifier" \
+          "$RUNNER_TEMP/profile.plist")
+
+          echo "Provisioning Profile UUID: $PROFILE_UUID"
+          echo "Provisioning Profile Name: $PROFILE_NAME"
+          echo "Provisioning Team ID: $PROFILE_TEAM_ID"
+          echo "Application Identifier: $BUNDLE_ID"
+
+          cp "$RUNNER_TEMP/build_pp.mobileprovision" \
+          "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "PROFILE_TEAM_ID=$PROFILE_TEAM_ID" >> "$GITHUB_ENV"
+
+      - name: Verify iOS signing configuration
         run: |
-          cd ios/App
-          xcodebuild -workspace App.xcworkspace \
+          echo "======================================"
+          echo "Signing configuration"
+          echo "======================================"
+
+          echo "Team ID: $PROFILE_TEAM_ID"
+          echo "Profile UUID: $PROFILE_UUID"
+          echo "Profile Name: $PROFILE_NAME"
+
+          echo ""
+          echo "Installed signing identities:"
+          security find-identity -v -p codesigning \
+            "$RUNNER_TEMP/app-signing.keychain-db"
+
+          echo ""
+          echo "Installed provisioning profiles:"
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
+    
+      - name: Build iOS App
+          run: |
+            cd ios/App
+
+            xcodebuild \
+            -workspace App.xcworkspace \
             -scheme App \
             -configuration Release \
-            -archivePath $RUNNER_TEMP/App.xcarchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -destination "generic/platform=iOS" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$PROFILE_TEAM_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             archive
 
       - name: Export IPA
@@ -126,16 +204,24 @@ jobs:
           <dict>
             <key>method</key>
             <string>app-store</string>
+
             <key>teamID</key>
-            <string>ULEB59EAC4</string>
-            <key>uploadBitcode</key>
-            <false/>
-            <key>compileBitcode</key>
-            <false/>
-            <key>uploadSymbols</key>
-            <true/>
+            <string>$PROFILE_TEAM_ID</string>
+
             <key>signingStyle</key>
             <string>manual</string>
+
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>YOUR_BUNDLE_IDENTIFIER</key>
+              <string>$PROFILE_NAME</string>
+            </dict>
+
+            <key>uploadSymbols</key>
+            <true/>
+
+            <key>compileBitcode</key>
+            <false/>
           </dict>
           </plist>
           EOF
