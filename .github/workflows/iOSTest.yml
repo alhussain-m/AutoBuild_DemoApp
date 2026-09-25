@@ -93,110 +93,19 @@ jobs:
           cd ios/App
           pod install
 
-      - name: Setup Code Signing
-        env:
-          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
-          IOS_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
-          CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
-
+      - name: Decode and install certificate
         run: |
-          set -e
+          echo "${{ secrets.IOS_CERTIFICATE_BASE64 }}" | base64 --decode > 13-6cert.p12
+          security create-keychain -p "" build.keychain
+          security import 13-6cert.p12 -k build.keychain -P "${{ secrets.IOS_CERTIFICATE_PASSWORD }}" -A
+          security list-keychains -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
 
-            echo "== Creating signing keychain =="
-
-            KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
-
-            security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-            security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-            # Make custom keychain available
-            security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
-
-            echo "== Importing certificate =="
-
-            CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
-
-            echo -n "$IOS_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
-
-            security import "$CERTIFICATE_PATH" \
-              -P "$CERTIFICATE_PASSWORD" \
-              -A \
-              -t cert \
-              -f pkcs12 \
-              -k "$KEYCHAIN_PATH"
-
-            echo "== Available signing identities =="
-
-            security find-identity -v -p codesigning "$KEYCHAIN_PATH"
-
-            echo "== Importing provisioning profile =="
-
-            PROVISION_PATH="$RUNNER_TEMP/build_pp.mobileprovision"
-
-            printf '%s' "$IOS_PROVISION_PROFILE_BASE64" |
-            tr -d '[:space:]' |
-            base64 --decode > "$PROVISION_PATH"
-
-            echo "Provisioning profile size:"
-            wc -c "$PROVISION_PATH"
-
-            echo "Provisioning profile type:"
-            file "$PROVISION_PATH"
-
-            echo "== Decoding provisioning profile =="
-
-            security cms \
-            -D \
-            -i "$PROVISION_PATH" \
-            -o "$RUNNER_TEMP/profile.plist"
-
-            echo "== Reading provisioning profile =="
-
-            PROFILE_NAME=$(
-            /usr/libexec/PlistBuddy \
-            -c "Print :Name" \
-            "$RUNNER_TEMP/profile.plist"
-            )
-
-          PROFILE_UUID=$(
-            /usr/libexec/PlistBuddy \
-            -c "Print :UUID" \
-            "$RUNNER_TEMP/profile.plist"
-            )
-
-          PROFILE_TEAM=$(
-            /usr/libexec/PlistBuddy \
-            -c "Print :TeamIdentifier:0" \
-            "$RUNNER_TEMP/profile.plist"
-            )
-
-          APPLICATION_IDENTIFIER=$(
-          /usr/libexec/PlistBuddy \
-          -c "Print :Entitlements:application-identifier" \
-          "$RUNNER_TEMP/profile.plist"
-          )
-
-          echo "Profile Name: $PROFILE_NAME"
-          echo "Profile UUID: $PROFILE_UUID"
-          echo "Profile Team: $PROFILE_TEAM"
-          echo "Application Identifier: $APPLICATION_IDENTIFIER"
-
-          echo "Profile Name: $PROFILE_NAME"
-          echo "Profile UUID: $PROFILE_UUID"
-          echo "Profile Team: $PROFILE_TEAM"
-          echo "Application Identifier: $APPLICATION_IDENTIFIER"
-
-          # Install using UUID as filename
-          cp "$PROVISION_PATH" \
-            "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
-
-          # Save values for subsequent steps
-          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
-          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
-          echo "PROFILE_TEAM=$PROFILE_TEAM" >> "$GITHUB_ENV"
-          echo "APPLICATION_IDENTIFIER=$APPLICATION_IDENTIFIER" >> "$GITHUB_ENV"
+      - name: Decode and install provisioning profile
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
 
       - name: Build iOS App
         run: |
