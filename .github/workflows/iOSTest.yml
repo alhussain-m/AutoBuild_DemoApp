@@ -138,7 +138,7 @@ jobs:
             <key>method</key>
             <string>app-store</string>
             <key>teamID</key>
-            <string>8LE2DAQG25</string>
+            <string>ULEB59EAC4</string>
             <key>uploadBitcode</key>
             <false/>
             <key>compileBitcode</key>
