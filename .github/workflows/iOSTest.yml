@@ -179,20 +179,20 @@ jobs:
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
     
       - name: Build iOS App
-          run: |
-            cd ios/App
+        run: |
+          cd ios/App
 
-            xcodebuild \
-            -workspace App.xcworkspace \
-            -scheme App \
-            -configuration Release \
-            -archivePath "$RUNNER_TEMP/App.xcarchive" \
-            -destination "generic/platform=iOS" \
-            CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM="$PROFILE_TEAM_ID" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            archive
+          xcodebuild \
+          -workspace App.xcworkspace \
+          -scheme App \
+          -configuration Release \
+          -archivePath "$RUNNER_TEMP/App.xcarchive" \
+          -destination "generic/platform=iOS" \
+          CODE_SIGN_STYLE=Manual \
+          DEVELOPMENT_TEAM="$PROFILE_TEAM_ID" \
+          PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+          CODE_SIGN_IDENTITY="Apple Distribution" \
+          archive
 
       - name: Export IPA
         run: |
